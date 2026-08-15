@@ -1,0 +1,10 @@
+node_modules/
+.env
+logs/*.log
+public/uploads/*
+!public/uploads/.gitkeep
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+coverage/
