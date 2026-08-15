@@ -849,7 +849,7 @@ PAGES.vehicles = async function (pg = 1, q = '') {
 };
 
 async function openVehicle(id) {
-  let v = { placa: '', modelo_id: '', ano: '', motor: '', chassi: '', observacoes: '', marca_id: '' };
+  let v = { placa: '', modelo_id: '', ano: '', motor: '', observacoes: '', marca_id: '' };
   if (id) try { v = await API.get(`/vehicles/${id}`); } catch { return; }
   const isEdit = !!id;
   try {
@@ -868,7 +868,6 @@ async function openVehicle(id) {
             <div class="col-md-3"><label class="form-label">Modelo *</label><input class="form-control" name="modelo_nome" id="vmodelo" value="${v.modelo_nome || ''}" required placeholder="Digite o modelo"></div>
             <div class="col-md-3"><label class="form-label">Ano *</label><input class="form-control" name="ano" type="number" value="${v.ano}" required min="1900" max="2099"></div>
             <div class="col-md-3"><label class="form-label">Motor</label><input class="form-control" name="motor" value="${v.motor || ''}"></div>
-            <div class="col-md-3"><label class="form-label">Chassi</label><input class="form-control" name="chassi" value="${v.chassi || ''}"></div>
             <div class="col-12"><label class="form-label">Observações</label><textarea class="form-control" name="observacoes" rows="2">${v.observacoes || ''}</textarea></div>
           </div>
         </form>
@@ -1666,7 +1665,7 @@ async function viewOrder(id) {
     mHtml += '          <textarea class="pm-textarea" placeholder="Nenhuma observa\u00e7\u00e3o registrada..." readonly>' + escapeHtml(o.observacoes || '') + '</textarea>';
     mHtml += '        </div>';
     mHtml += '      </div>';
-    if (user.perfil === 'logistica' && o.status === 'aprovado') {
+    if (user.perfil === 'logistica' && ['aprovado', 'comprado', 'concluido'].includes(o.status)) {
       mHtml += '      <div class="pm-section">';
       mHtml += '        <div class="pm-section-title"><i data-lucide="printer"></i> Ordem de Compra</div>';
       mHtml += '        <div class="pm-oc-area">';
@@ -1892,7 +1891,7 @@ async function openOrder(id) {
     mHtml += '        </div>';
     mHtml += '        <div class="pm-section">';
     mHtml += '          <div class="pm-section-title"><i data-lucide="calendar"></i> Previsão de Entrega</div>';
-    mHtml += '          <input type="date" class="pm-input" name="previsao_entrega" value="' + (isEdit && order.previsao_entrega ? order.previsao_entrega.split('T')[0] : '') + '"' + (user.perfil === 'logistica' ? '' : ' disabled') + '>';
+    mHtml += '          <input type="date" class="pm-input" name="previsao_entrega" value="' + (isEdit && order.previsao_entrega ? order.previsao_entrega.split('T')[0] : '') + '"' + (user.perfil === 'logistica' ? ' required' : ' disabled') + '>';
     mHtml += '          ' + (user.perfil === 'logistica' ? '' : '<small class="text-muted d-block mt-1">Somente logística pode alterar esta data</small>');
     mHtml += '        </div>';
     mHtml += '        <div class="pm-section">';
@@ -1977,6 +1976,7 @@ async function openOrder(id) {
     const validateOrderForm = () => {
       if (!orderForm || !orderSubmitBtn) return false;
       if (!orderForm.veiculo_id.value.trim()) return false;
+      if (user.perfil === 'logistica' && !orderForm.querySelector('[name="previsao_entrega"]')?.value) return false;
       const rows = [...(orderItemsEl?.querySelectorAll('.order-item') || [])];
       if (!rows.length) return false;
       return rows.every((row) => {

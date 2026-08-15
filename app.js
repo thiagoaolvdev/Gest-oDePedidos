@@ -60,6 +60,12 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
+if (process.env.LIVE_RELOAD !== 'false') {
+  const liveReload = require('./src/utils/liveReload');
+  app.get('/__reload-state', liveReload.stateHandler);
+  app.use(liveReload.injector());
+}
+
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'src', 'views'));
 

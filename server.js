@@ -10,6 +10,10 @@ const PORT = process.env.PORT || 3000;
     console.log('MySQL conectado com sucesso');
     connection.release();
 
+    if (process.env.LIVE_RELOAD !== 'false') {
+      require('./src/utils/passengerRestart').start();
+    }
+
     app.listen(PORT, () => {
       console.log(`🌐 ${process.env.APP_NAME} rodando em:`);
       console.log(`   ➜ Local:   http://localhost:${PORT}`);
