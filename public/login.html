@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-bs-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chemarauto Veículos - Login</title>
+  <link rel="icon" type="image/png" href="/img/LogoBemvindo.png">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="/css/login.css">
+</head>
+<body class="login-page">
+  <div class="login-bg" style="background-image:url('/img/PlanoDeFundo.png')"></div>
+  <div class="login-overlay"></div>
+
+  <div class="login-wrapper">
+    <div class="login-card">
+      <div class="login-card-body">
+        <h1 class="login-title">Bem-vindo!</h1>
+        <p class="login-subtitle">Faça login para acessar o sistema.</p>
+
+        <form id="loginForm" autocomplete="off" novalidate>
+          <div id="loginError" class="login-alert d-none" role="alert"></div>
+
+          <div class="form-group">
+            <label for="nick" class="form-label">Nick</label>
+            <div class="input-wrapper">
+              <i class="bi bi-person input-icon"></i>
+              <input type="text" class="form-input" id="nick" placeholder="Digite seu nick" autocomplete="username" required autofocus>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="password" class="form-label">Senha</label>
+            <div class="input-wrapper">
+              <i class="bi bi-lock input-icon"></i>
+              <input type="password" class="form-input" id="password" placeholder="Digite sua senha" autocomplete="current-password" required>
+              <button type="button" class="input-eye" id="togglePassword" aria-label="Mostrar/ocultar senha">
+                <i class="bi bi-eye" id="eyeIcon"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="login-options">
+            <label class="checkbox-label">
+              <input type="checkbox" id="rememberMe" class="checkbox-input">
+              <span>Lembrar meu acesso</span>
+            </label>
+            <a href="#" class="forgot-link" id="forgotPassword">Esqueceu sua senha?</a>
+          </div>
+
+          <button type="submit" class="login-btn" id="loginBtn">
+            <span id="loginBtnText">Entrar</span>
+            <span class="login-btn-spinner d-none" id="loginBtnSpinner"></span>
+          </button>
+        </form>
+
+        <div class="login-divider"></div>
+
+        <div class="login-footer">
+          <span class="footer-brand">Chemarauto Veículos</span>
+          <span class="footer-tagline">Faz parte da sua vida!</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+</body>
+</html>
