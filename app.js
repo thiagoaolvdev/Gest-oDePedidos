@@ -29,6 +29,8 @@ const app = express();
 const isProduction = process.env.NODE_ENV === 'production';
 const corsOrigin = process.env.CORS_ORIGIN;
 
+app.set('trust proxy', process.env.TRUST_PROXY || (isProduction ? 1 : false));
+
 if (isProduction && (!corsOrigin || !String(corsOrigin).trim())) {
   throw new Error('Variável obrigatória ausente em produção: CORS_ORIGIN');
 }
