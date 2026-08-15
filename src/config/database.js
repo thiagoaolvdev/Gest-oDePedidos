@@ -1,10 +1,5 @@
 const mysql = require('mysql2/promise');
 
-const resolveDbHost = () => {
-  const configuredHost = process.env.DB_HOST || '127.0.0.1';
-  return configuredHost === 'localhost' ? '127.0.0.1' : configuredHost;
-};
-
 const getDbPassword = () => {
   const value = process.env.DB_PASSWORD;
   if (value && String(value).trim()) {
@@ -17,7 +12,7 @@ const getDbPassword = () => {
 };
 
 const pool = mysql.createPool({
-  host: resolveDbHost(),
+  host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 3306,
   user: process.env.DB_USER || 'root',
   password: getDbPassword(),

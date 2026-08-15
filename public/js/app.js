@@ -128,7 +128,7 @@ function navigate(page) {
   });
   const titles = {
     dashboard: 'Dashboard', vehicles: 'Veículos', marcas: 'Marcas', modelos: 'Modelos', parts: 'Peças',
-    orders: 'Pedidos', orders_urgentes: 'Urgentes', orders_pendente: 'Pendentes', orders_aprovado: 'Aprovados', orders_confirmado: 'Confirmados', orders_aguardando_aprovacao: 'Aguardando Aprovação',
+    orders: 'Pedidos', orders_urgentes: 'Urgentes', orders_pendente: 'Pendentes', orders_aprovado: 'Aprovados', orders_aguardando_aprovacao: 'Aguardando Aprovação',
     entregas_chegou: 'Entregues',
     users: 'Usuários', audit: 'Auditoria',
     fornecedores: 'Fornecedores', categorias: 'Categorias', profile: 'Meu Perfil'
@@ -145,7 +145,7 @@ function navigate(page) {
 function getPageIcon(page) {
   const icons = {
     dashboard: 'bi-speedometer2', vehicles: 'bi-truck', marcas: 'bi-bookmark', modelos: 'bi-diagram-3', parts: 'bi-gear',
-    orders: 'bi-clipboard-check', orders_urgentes: 'bi-alarm', orders_pendente: 'bi-clock', orders_aprovado: 'bi-check-circle', orders_confirmado: 'bi-check2-all', orders_aguardando_aprovacao: 'bi-hourglass-split',
+    orders: 'bi-clipboard-check', orders_urgentes: 'bi-alarm', orders_pendente: 'bi-clock', orders_aprovado: 'bi-check-circle', orders_aguardando_aprovacao: 'bi-hourglass-split',
     entregas_chegou: 'bi-truck',
     users: 'bi-people', audit: 'bi-journal-text',
     fornecedores: 'bi-shop', categorias: 'bi-tags', profile: 'bi-person-circle'
@@ -237,19 +237,6 @@ function renderPagination(data, fn) {
 
 function getOrderSupplierId(order) {
   return order?.itens?.find((item) => item.fornecedor_id)?.fornecedor_id || null;
-}
-
-function orderItemsComplete(itens) {
-  const list = itens || [];
-  if (!list.length) return false;
-  return list.every((item) => {
-    const descricao = String(item.item_nome || item.descricao || '').trim();
-    const quantidade = Number(item.quantidade || 0);
-    if (!descricao || quantidade < 1) return false;
-    const valorUnitario = Number(item.valor_unitario || 0);
-    const origem = String(item.fornecedor_origem || '').trim();
-    return valorUnitario > 0 && origem.length > 0;
-  });
 }
 
 function getNextLogisticsAction(order) {
@@ -862,7 +849,7 @@ PAGES.vehicles = async function (pg = 1, q = '') {
 };
 
 async function openVehicle(id) {
-  let v = { placa: '', modelo_id: '', ano: '', motor: '', chassi: '', observacoes: '', marca_id: '' };
+  let v = { placa: '', modelo_id: '', ano: '', motor: '', observacoes: '', marca_id: '' };
   if (id) try { v = await API.get(`/vehicles/${id}`); } catch { return; }
   const isEdit = !!id;
   try {
@@ -881,7 +868,6 @@ async function openVehicle(id) {
             <div class="col-md-3"><label class="form-label">Modelo *</label><input class="form-control" name="modelo_nome" id="vmodelo" value="${v.modelo_nome || ''}" required placeholder="Digite o modelo"></div>
             <div class="col-md-3"><label class="form-label">Ano *</label><input class="form-control" name="ano" type="number" value="${v.ano}" required min="1900" max="2099"></div>
             <div class="col-md-3"><label class="form-label">Motor</label><input class="form-control" name="motor" value="${v.motor || ''}"></div>
-            <div class="col-md-3"><label class="form-label">Chassi</label><input class="form-control" name="chassi" value="${v.chassi || ''}"></div>
             <div class="col-12"><label class="form-label">Observações</label><textarea class="form-control" name="observacoes" rows="2">${v.observacoes || ''}</textarea></div>
           </div>
         </form>
@@ -1296,7 +1282,7 @@ async function renderOrdersPage(url, pg, state) {
       ).join('');
       c.innerHTML = `
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-        <div class="d-flex gap-2 align-items-center flex-wrap order-filter-bar">
+        <div class="d-flex gap-2 align-items-center flex-wrap">
           <div class="input-group input-group-sm" style="width:auto;">
             <span class="input-group-text"><i class="bi bi-upc-scan"></i></span>
             <input type="text" class="form-control" placeholder="Código do pedido..." id="orderSearchFilter" value="${escapeHtml(search)}" style="min-width:200px" onkeydown="if(event.key==='Enter')applyOrderFilters()">
@@ -1345,8 +1331,8 @@ function attachOrderSearchDebounce(id, cb) {
   inp.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(cb, 500); });
 }
 
-function createOrdersPage(statusFilter, label, keyOverride) {
-  const pageKey = keyOverride || ('orders_' + statusFilter);
+function createOrdersPage(statusFilter, label) {
+  const pageKey = 'orders_' + statusFilter;
   PAGES[pageKey] = async function (pg = 1) {
     const c = document.getElementById('pageContent');
     const solicitanteId = document.getElementById('solFilter_' + statusFilter)?.value || '';
@@ -1371,7 +1357,7 @@ function createOrdersPage(statusFilter, label, keyOverride) {
       ).join('');
       c.innerHTML = `
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-          <div class="d-flex gap-2 align-items-center flex-wrap order-filter-bar">
+          <div class="d-flex gap-2 align-items-center flex-wrap">
             <h5 class="mb-0 fw-semibold">${escapeHtml(label)}</h5>
             <div class="input-group input-group-sm" style="width:auto;">
               <span class="input-group-text"><i class="bi bi-upc-scan"></i></span>
@@ -1437,7 +1423,7 @@ function createEntregaPage(entregaFilter, label) {
       ).join('');
       c.innerHTML = `
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-          <div class="d-flex gap-2 align-items-center flex-wrap order-filter-bar">
+          <div class="d-flex gap-2 align-items-center flex-wrap">
             <h5 class="mb-0 fw-semibold">${escapeHtml(label)}</h5>
             <div class="input-group input-group-sm" style="width:auto;">
               <span class="input-group-text"><i class="bi bi-upc-scan"></i></span>
@@ -1481,7 +1467,6 @@ function createEntregaPage(entregaFilter, label) {
 // Gerar páginas de pedidos por status
 createOrdersPage('pendente', 'Pedidos Pendentes');
 createOrdersPage('aprovado', 'Pedidos Aprovados');
-createOrdersPage('aprovado', 'Pedidos Confirmados', 'orders_confirmado');
 createOrdersPage('aguardando_aprovacao', 'Pedidos Aguardando Aprovação');
 
 // Páginas de entrega
@@ -1513,7 +1498,7 @@ function createUrgentesPage(label) {
       ).join('');
       c.innerHTML = `
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-          <div class="d-flex gap-2 align-items-center flex-wrap order-filter-bar">
+          <div class="d-flex gap-2 align-items-center flex-wrap">
             <h5 class="mb-0 fw-semibold text-danger"><i class="bi bi-alarm me-1"></i>${escapeHtml(label)}</h5>
             <div class="input-group input-group-sm" style="width:auto;">
               <span class="input-group-text"><i class="bi bi-upc-scan"></i></span>
@@ -1647,24 +1632,19 @@ async function viewOrder(id) {
       mHtml += '      </div>';
     }
     if (canApprove) {
-      const orderComplete = orderItemsComplete(itens);
-      const approveDisabled = !orderComplete ? ' disabled' : '';
       mHtml += '      <div class="pm-section">';
       mHtml += '        <div class="pm-section-title"><i data-lucide="check-circle"></i> Aprova\u00e7\u00e3o</div>';
       mHtml += '        <div class="pm-oc-area" style="border-color:rgba(234,179,8,0.2);background:rgba(234,179,8,0.04);">';
       mHtml += '          <div class="pm-oc-label"><strong>Cota\u00e7\u00e3o pronta.</strong> Valor: ' + fmtCurrency(o.valor_total) + (o.previsao_entrega ? ' \u00b7 Previs\u00e3o de entrega: ' + fmtDate(o.previsao_entrega) : '') + '.</div>';
-      if (!orderComplete) {
-        mHtml += '          <div class="pm-oc-label" style="color:#f87171;margin-bottom:0.5rem;"><i data-lucide="alert-triangle"></i> Preencha todos os campos do pedido (itens, valores e fornecedor) antes de aprovar.</div>';
-      }
       if (precisaDiretor) {
         mHtml += '          <div class="pm-oc-label" style="color:#b45309;"><i data-lucide="shield-alert"></i> Pedido acima de ' + fmtCurrency(DIRECTOR_APPROVAL_LIMIT) + ' requer autoriza\u00e7\u00e3o do diretor.</div>';
       }
       mHtml += '          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">';
       if (precisaDiretor) {
-        mHtml += '            <button class="pm-btn pm-btn-success pm-btn-sm" id="approveQuoteBtn"' + approveDisabled + '><i data-lucide="check-circle"></i> Aprovar</button>';
+        mHtml += '            <button class="pm-btn pm-btn-success pm-btn-sm" id="approveQuoteBtn"><i data-lucide="check-circle"></i> Aprovar</button>';
         mHtml += '            <button class="pm-btn pm-btn-danger pm-btn-sm" id="cancelQuoteBtn"><i data-lucide="x-circle"></i> Rejeitar</button>';
       } else {
-        mHtml += '            <button class="pm-btn pm-btn-success pm-btn-sm" id="approveQuoteBtn"' + approveDisabled + '><i data-lucide="check-circle"></i> Comprar</button>';
+        mHtml += '            <button class="pm-btn pm-btn-success pm-btn-sm" id="approveQuoteBtn"><i data-lucide="check-circle"></i> Comprar</button>';
         mHtml += '            <button class="pm-btn pm-btn-warning pm-btn-sm" id="requestQuoteBtn"><i data-lucide="refresh-cw"></i> Novo Or\u00e7amento</button>';
         mHtml += '            <button class="pm-btn pm-btn-danger pm-btn-sm" id="cancelQuoteBtn"><i data-lucide="x-circle"></i> Cancelado</button>';
       }
@@ -1911,7 +1891,7 @@ async function openOrder(id) {
     mHtml += '        </div>';
     mHtml += '        <div class="pm-section">';
     mHtml += '          <div class="pm-section-title"><i data-lucide="calendar"></i> Previsão de Entrega</div>';
-    mHtml += '          <input type="date" class="pm-input" name="previsao_entrega" value="' + (isEdit && order.previsao_entrega ? order.previsao_entrega.split('T')[0] : '') + '"' + (user.perfil === 'logistica' ? '' : ' disabled') + '>';
+    mHtml += '          <input type="date" class="pm-input" name="previsao_entrega" value="' + (isEdit && order.previsao_entrega ? order.previsao_entrega.split('T')[0] : '') + '"' + (user.perfil === 'logistica' ? ' required' : ' disabled') + '>';
     mHtml += '          ' + (user.perfil === 'logistica' ? '' : '<small class="text-muted d-block mt-1">Somente logística pode alterar esta data</small>');
     mHtml += '        </div>';
     mHtml += '        <div class="pm-section">';
@@ -1996,6 +1976,7 @@ async function openOrder(id) {
     const validateOrderForm = () => {
       if (!orderForm || !orderSubmitBtn) return false;
       if (!orderForm.veiculo_id.value.trim()) return false;
+      if (user.perfil === 'logistica' && !orderForm.querySelector('[name="previsao_entrega"]')?.value) return false;
       const rows = [...(orderItemsEl?.querySelectorAll('.order-item') || [])];
       if (!rows.length) return false;
       return rows.every((row) => {
@@ -2118,12 +2099,6 @@ async function confirmQuoteApproval(id) {
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
   }
   try {
-    const o = await API.get(`/orders/${id}`);
-    if (!orderItemsComplete(o.itens)) {
-      toast('Preencha todos os campos do pedido antes de aprovar', 'warning');
-      viewOrder(id);
-      return;
-    }
     await API.post(`/orders/${id}/approve`, {});
     toast('Pedido confirmado');
     viewOrder(id);
@@ -2301,7 +2276,6 @@ async function buscarPorPlaca(placa) {
         </div>
         ${o.observacoes ? `<div style="font-size:12px;color:var(--text-light);margin-bottom:8px"><i class="fa-solid fa-comment me-1"></i><strong>Obs:</strong> ${escapeHtml(o.observacoes)}</div>` : ''}
         ${o.itens && o.itens.length ? `
-        <div class="placa-items-table-wrap">
         <table class="placa-items-table">
           <thead><tr><th><i class="fa-solid fa-gear me-1"></i>Peca</th><th><i class="fa-solid fa-barcode me-1"></i>Codigo</th><th><i class="fa-solid fa-hashtag me-1"></i>Qtd</th><th><i class="fa-solid fa-dollar-sign me-1"></i>Valor Unit.</th><th><i class="fa-solid fa-coins me-1"></i>Valor Total</th><th><i class="fa-solid fa-store me-1"></i>Fornecedor</th></tr></thead>
           <tbody>
@@ -2315,8 +2289,7 @@ async function buscarPorPlaca(placa) {
               <td><i class="fa-solid fa-store me-1" style="font-size:10px;color:var(--text-light)"></i>${oi.fornecedor || '-'}</td>
             </tr>`).join('')}
           </tbody>
-        </table>
-        </div>` : '<div style="font-size:12px;color:var(--text-light);padding:8px 0"><i class="fa-solid fa-inbox me-1"></i>Nenhum item</div>'}
+        </table>` : '<div style="font-size:12px;color:var(--text-light);padding:8px 0"><i class="fa-solid fa-inbox me-1"></i>Nenhum item</div>'}
         <div style="margin-top:10px">
           <button class="btn-view" onclick="viewOrder(${o.id})" style="width:auto;padding:7px 16px;border:none;border-radius:8px;background:var(--bg);color:var(--info);cursor:pointer;font-size:12px;font-weight:600;transition:all var(--transition)" onmouseover="this.style.background='var(--info)';this.style.color='#fff'" onmouseout="this.style.background='var(--bg)';this.style.color='var(--info)'"><i class="fa-solid fa-eye me-1"></i>Ver Pedido</button>
         </div>

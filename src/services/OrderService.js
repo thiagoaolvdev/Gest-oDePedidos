@@ -244,20 +244,6 @@ class OrderService {
       throw { statusCode: 400, message: 'Pedido não está aguardando aprovação' };
     }
 
-    const fullOrder = await this.repo.findFullById(id);
-    const itens = fullOrder.itens || [];
-    const itemIncompleto = itens.some((item) => {
-      const descricao = String(item.item_nome || '').trim();
-      const quantidade = Number(item.quantidade || 0);
-      if (!descricao || quantidade < 1) return true;
-      const valorUnitario = Number(item.valor_unitario || 0);
-      const origem = String(item.fornecedor_origem || '').trim();
-      return !(valorUnitario > 0) || !origem;
-    });
-    if (!itens.length || itemIncompleto) {
-      throw { statusCode: 400, message: 'Preencha todos os campos do pedido (itens, valores e fornecedor) antes de aprovar' };
-    }
-
     if (Number(order.valor_total) > authConfig.directorApprovalLimit && perfil !== 'diretor') {
       const limite = authConfig.directorApprovalLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
       throw { statusCode: 403, message: `Pedido acima de ${limite} requer autorização do diretor` };
