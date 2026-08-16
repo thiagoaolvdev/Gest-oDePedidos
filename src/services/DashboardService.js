@@ -211,6 +211,20 @@ class DashboardService {
     return rows;
   }
 
+  async getValoresGastosPorUsuario(usuarioId, dias) {
+    const [rows] = await db.execute(`
+      SELECT DATE_FORMAT(data_pedido, '%Y-%m') as mes,
+        COALESCE(SUM(valor_total), 0) as valor
+      FROM pedidos
+      WHERE usuario_id = ?
+        AND status IN ('aprovado', 'comprado', 'concluido')
+        ${periodoFilter(dias)}
+      GROUP BY DATE_FORMAT(data_pedido, '%Y-%m')
+      ORDER BY mes
+    `, [usuarioId]);
+    return rows;
+  }
+
   async getGastosMensais() {
     const [rows] = await db.execute(`
       SELECT DATE_FORMAT(data_pedido, '%Y-%m') as mes, COALESCE(SUM(valor_total), 0) as valor

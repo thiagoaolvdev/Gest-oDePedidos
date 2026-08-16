@@ -56,7 +56,7 @@ function applyPermissions() {
   show('navParts', ['garantia', 'funilaria', 'administrativo', 'diretor'].includes(p));
   show('navFornecedores', false);
   show('sectionAdmin', ['garantia', 'funilaria', 'administrativo', 'diretor'].includes(p));
-  show('navUsers', ['administrativo'].includes(p));
+  show('navUsers', ['administrativo', 'diretor'].includes(p));
   show('navCategorias', ['garantia', 'funilaria', 'administrativo', 'diretor'].includes(p));
   show('navAudit', ['diretor', 'administrativo'].includes(p));
 }
@@ -787,6 +787,49 @@ function filterRankVeic(valor) {
     : '<tr><td colspan="4" style="text-align:center;padding:1.5rem;color:var(--text-light);"><i class="fa-solid fa-car-side mb-2" style="display:block;font-size:22px;opacity:.4"></i>Nenhum veículo encontrado</td></tr>';
 }
 
+function buildMesKeys(dias) {
+  const mesKeys = [];
+  const hoje = new Date();
+  if (dias > 0) {
+    const inicio = new Date();
+    inicio.setDate(inicio.getDate() - dias);
+    const cur = new Date(inicio.getFullYear(), inicio.getMonth(), 1);
+    while (cur <= hoje) {
+      mesKeys.push(cur.getFullYear() + '-' + String(cur.getMonth() + 1).padStart(2, '0'));
+      cur.setMonth(cur.getMonth() + 1);
+    }
+  } else {
+    for (let m = 0; m < 12; m++) {
+      mesKeys.push(hoje.getFullYear() + '-' + String(m + 1).padStart(2, '0'));
+    }
+  }
+  return mesKeys;
+}
+
+function buildValoresMesData(valoresMes, dias) {
+  const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  const mesKeys = buildMesKeys(dias);
+  const byMes = {};
+  (valoresMes || []).forEach(r => { byMes[r.mes] = r; });
+  return {
+    labels: mesKeys.map(k => `${MESES[parseInt(k.slice(5), 10) - 1]}/${k.slice(2, 4)}`),
+    aprovados: mesKeys.map(k => parseFloat((byMes[k] || {}).valor_aprovado) || 0),
+    pendentes: mesKeys.map(k => parseFloat((byMes[k] || {}).valor_pendente) || 0),
+    totalPedidos: mesKeys.map(k => parseInt((byMes[k] || {}).total_pedidos, 10) || 0)
+  };
+}
+
+function buildGastosUsuarioData(gastos, dias) {
+  const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  const mesKeys = buildMesKeys(dias);
+  const byMes = {};
+  (gastos || []).forEach(r => { byMes[r.mes] = r; });
+  return {
+    labels: mesKeys.map(k => `${MESES[parseInt(k.slice(5), 10) - 1]}/${k.slice(2, 4)}`),
+    valores: mesKeys.map(k => parseFloat((byMes[k] || {}).valor) || 0)
+  };
+}
+
 PAGES.dashboard = async function (dias) {
   dias = (typeof dias === 'number' ? dias : dashDias) || 0;
   const c = document.getElementById('pageContent');
@@ -794,13 +837,16 @@ PAGES.dashboard = async function (dias) {
   try {
     const q = (url) => dias > 0 ? `${url}${url.includes('?') ? '&' : '?'}dias=${dias}` : url;
     const isFull = ['diretor', 'administrativo'].includes(user.perfil);
-    const [kpis, status, tempoMedio] = await Promise.all([
+    const [kpis, tempoMedio] = await Promise.all([
       API.get(q('/dashboard/kpis')).catch(() => ({})),
-      API.get(q('/dashboard/pedidos-por-status')).catch(() => []),
       API.get(q('/dashboard/tempo-medio-resposta')).catch(() => ({}))
     ]);
 
     if (!isFull) {
+      const [valoresMes, gastosUsuario] = await Promise.all([
+        API.get(q('/dashboard/valores-por-mes')).catch(() => []),
+        API.get(q('/dashboard/valores-gastos-usuario')).catch(() => [])
+      ]);
       c.innerHTML = `
         <div class="dashboard">
           <div class="dash-header">
@@ -815,19 +861,21 @@ PAGES.dashboard = async function (dias) {
             ${kpiCards(kpis, tempoMedio)}
           </div>
           <div class="charts-grid">
-            <div class="chart-card">
-              <div class="chart-title"><i class="fa-solid fa-chart-pie"></i>Status dos Pedidos</div>
-              <canvas id="chartStatus" height="260"></canvas>
+            <div class="chart-card chart-wide">
+              <div class="chart-title"><i class="fa-solid fa-chart-column"></i>Valores Aprovados x Pendentes por Mês</div>
+              <canvas id="chartValoresMes" height="300"></canvas>
             </div>
             <div class="chart-card">
-              <div class="chart-title"><i class="fa-solid fa-chart-pie"></i>Valores Gastos (Aprovados) x Pendentes</div>
-              <canvas id="chartValores" height="260"></canvas>
+              <div class="chart-title"><i class="fa-solid fa-chart-line"></i>Valores Gastos por ${escapeHtml(user.nome || 'Você')}</div>
+              <canvas id="chartGastosUsuario" height="260"></canvas>
             </div>
           </div>
         </div>`;
       setTimeout(() => {
-        initCharts({ status });
-        createValoresPie('chartValores', status);
+        const vm = buildValoresMesData(valoresMes, dias);
+        createComboChart('chartValoresMes', vm.labels, vm.aprovados, vm.pendentes, vm.totalPedidos);
+        const gu = buildGastosUsuarioData(gastosUsuario, dias);
+        createLineChart('chartGastosUsuario', gu.labels, gu.valores, 'Valores Gastos', '#2ECC71', 'rgba(46, 204, 113, 0.15)');
       }, 100);
     } else {
       const [kpisDir, valoresMes, pedidosSetor, rankSol, rankVeic, tempoMedio] = await Promise.all([
@@ -904,29 +952,8 @@ PAGES.dashboard = async function (dias) {
         </div>`;
 
       setTimeout(() => {
-        const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-        const mesKeys = [];
-        const hoje = new Date();
-        if (dias > 0) {
-          const inicio = new Date();
-          inicio.setDate(inicio.getDate() - dias);
-          const cur = new Date(inicio.getFullYear(), inicio.getMonth(), 1);
-          while (cur <= hoje) {
-            mesKeys.push(cur.getFullYear() + '-' + String(cur.getMonth() + 1).padStart(2, '0'));
-            cur.setMonth(cur.getMonth() + 1);
-          }
-        } else {
-          for (let m = 0; m < 12; m++) {
-            mesKeys.push(hoje.getFullYear() + '-' + String(m + 1).padStart(2, '0'));
-          }
-        }
-        const byMes = {};
-        (valoresMes || []).forEach(r => { byMes[r.mes] = r; });
-        const labels = mesKeys.map(k => `${MESES[parseInt(k.slice(5), 10) - 1]}/${k.slice(2, 4)}`);
-        const aprovados = mesKeys.map(k => parseFloat((byMes[k] || {}).valor_aprovado) || 0);
-        const pendentes = mesKeys.map(k => parseFloat((byMes[k] || {}).valor_pendente) || 0);
-        const totalPedidos = mesKeys.map(k => parseInt((byMes[k] || {}).total_pedidos, 10) || 0);
-        createComboChart('chartValoresMes', labels, aprovados, pendentes, totalPedidos);
+        const vm = buildValoresMesData(valoresMes, dias);
+        createComboChart('chartValoresMes', vm.labels, vm.aprovados, vm.pendentes, vm.totalPedidos);
 
         const sLabels = (pedidosSetor || []).map(r => r.setor || '-');
         const sPedidos = (pedidosSetor || []).map(r => r.total || 0);
@@ -2336,7 +2363,7 @@ function openQuoteObservationModal(id, action) {
 // ---------- USERS ----------
 PAGES.users = async function () {
   const c = document.getElementById('pageContent');
-  if (!['administrativo'].includes(user.perfil)) { c.innerHTML = `<div class="alert alert-danger">Acesso restrito</div>`; return; }
+  if (!['administrativo', 'diretor'].includes(user.perfil)) { c.innerHTML = `<div class="alert alert-danger">Acesso restrito</div>`; return; }
   c.innerHTML = `<div class="loading-screen"><div class="spinner-border"></div></div>`;
   try {
     const data = await API.get('/users?limit=100');
@@ -2363,7 +2390,7 @@ PAGES.users = async function () {
               <td>${u.ativo ? '<span class="text-success"><i class="bi bi-check-circle-fill"></i></span>' : '<span class="text-danger"><i class="bi bi-x-circle-fill"></i></span>'}</td>
               <td class="text-end"><div class="table-actions justify-content-end">
                 <button class="btn btn-outline-primary" onclick="openUser(${u.id})"><i class="bi bi-pencil"></i></button>
-                ${['administrativo'].includes(user.perfil) ? `<button class="btn btn-outline-danger" onclick="delUser(${u.id})"><i class="bi bi-trash"></i></button>` : ''}
+                ${['administrativo', 'diretor'].includes(user.perfil) ? `<button class="btn btn-outline-danger" onclick="delUser(${u.id})"><i class="bi bi-trash"></i></button>` : ''}
               </div></td>
             </tr>`).join('')}</tbody></table></div>`}
         </div>`;

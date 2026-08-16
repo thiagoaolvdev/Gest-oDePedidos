@@ -93,6 +93,13 @@ const valoresPorMes = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+const valoresGastosUsuario = async (req, res, next) => {
+  try {
+    const data = await service.getValoresGastosPorUsuario(req.userId, req.query.dias);
+    res.json(data);
+  } catch (err) { next(err); }
+};
+
 const gastosMensais = async (req, res, next) => {
   try {
     const data = await service.getGastosMensais();
@@ -163,4 +170,4 @@ const suggestPlacas = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { summary, pedidosPorMes, pedidosPorVeiculo, pedidosPorUsuario, pedidosPorSetor, gastosPorFornecedor, pedidosPorStatus, gastosPorPeriodo, topUsuarios, kpi, kpis, kpisDiretor, valoresPorMes, gastosMensais, desempenhoSetores, recentes, rankingSolicitantes, tempoMedioOrcamento, tempoMedioResposta, pedidosRejeitados, pedidosAceitos, pedidosPorPlaca, suggestPlacas };
+module.exports = { summary, pedidosPorMes, pedidosPorVeiculo, pedidosPorUsuario, pedidosPorSetor, gastosPorFornecedor, pedidosPorStatus, gastosPorPeriodo, topUsuarios, kpi, kpis, kpisDiretor, valoresPorMes, valoresGastosUsuario, gastosMensais, desempenhoSetores, recentes, rankingSolicitantes, tempoMedioOrcamento, tempoMedioResposta, pedidosRejeitados, pedidosAceitos, pedidosPorPlaca, suggestPlacas };

@@ -18,6 +18,7 @@ router.get('/top-usuarios', DashboardController.topUsuarios);
   router.get('/kpis', DashboardController.kpis);
   router.get('/kpis-diretor', DashboardController.kpisDiretor);
   router.get('/valores-por-mes', DashboardController.valoresPorMes);
+  router.get('/valores-gastos-usuario', DashboardController.valoresGastosUsuario);
 router.get('/gastos-mensais', DashboardController.gastosMensais);
 router.get('/desempenho-setores', DashboardController.desempenhoSetores);
 router.get('/recentes', DashboardController.recentes);
