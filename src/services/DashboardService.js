@@ -1,5 +1,10 @@
 const db = require('../config/database');
 
+const periodoFilter = (dias, table = '') => {
+  const d = Math.min(parseInt(dias, 10) || 0, 3650);
+  return d > 0 ? ` AND ${table}data_pedido >= DATE_SUB(NOW(), INTERVAL ${d} DAY)` : '';
+};
+
 class DashboardService {
   async getSummary() {
     const [pedidosMes] = await db.execute(`
@@ -41,23 +46,39 @@ class DashboardService {
     return rows;
   }
 
-  async getPedidosPorVeiculo(limit = 10) {
+  async getPedidosPorVeiculo(limit = 10, dias) {
     const [rows] = await db.query(`
       SELECT v.placa, mo.nome as modelo, ma.nome as marca, COUNT(p.id) as total, COALESCE(SUM(p.valor_total), 0) as valor
       FROM pedidos p LEFT JOIN veiculos v ON v.id = p.veiculo_id
       LEFT JOIN modelos mo ON mo.id = v.modelo_id
       LEFT JOIN marcas ma ON ma.id = mo.marca_id
+      WHERE 1=1 ${periodoFilter(dias, 'p.')}
       GROUP BY p.veiculo_id ORDER BY total DESC LIMIT ?
     `, [Number(limit) || 10]);
     return rows;
   }
 
-  async getPedidosPorUsuario(limit = 10) {
+  async getPedidosPorUsuario(limit = 10, dias) {
     const [rows] = await db.query(`
       SELECT u.nome, u.nick, COUNT(p.id) as total, COALESCE(SUM(p.valor_total), 0) as valor
       FROM pedidos p LEFT JOIN usuarios u ON u.id = p.usuario_id
+      WHERE 1=1 ${periodoFilter(dias, 'p.')}
       GROUP BY p.usuario_id ORDER BY total DESC LIMIT ?
     `, [Number(limit) || 10]);
+    return rows;
+  }
+
+  async getPedidosPorSetor(dias) {
+    const [rows] = await db.query(`
+      SELECT COALESCE(u.setor, 'Sem setor') as setor,
+        COUNT(p.id) as total,
+        COALESCE(SUM(p.valor_total), 0) as valor
+      FROM pedidos p
+      LEFT JOIN usuarios u ON u.id = p.usuario_id
+      WHERE 1=1 ${periodoFilter(dias, 'p.')}
+      GROUP BY u.setor
+      ORDER BY total DESC
+    `);
     return rows;
   }
 
@@ -99,10 +120,11 @@ class DashboardService {
     return rows;
   }
 
-  async getPedidosPorStatus() {
+  async getPedidosPorStatus(dias) {
     const [rows] = await db.execute(`
       SELECT status, COUNT(*) as total, COALESCE(SUM(valor_total), 0) as valor
-      FROM pedidos GROUP BY status ORDER BY FIELD(status, 'pendente','em_compra','aguardando_aprovacao','novo_orcamento','aprovado','rejeitado','comprado','concluido')
+      FROM pedidos WHERE 1=1 ${periodoFilter(dias)}
+      GROUP BY status ORDER BY FIELD(status, 'pendente','em_compra','aguardando_aprovacao','novo_orcamento','aprovado','rejeitado','comprado','concluido')
     `);
     return rows;
   }
@@ -137,7 +159,7 @@ class DashboardService {
     };
   }
 
-  async getKpis() {
+  async getKpis(dias) {
     const [rows] = await db.execute(`
       SELECT
         COUNT(CASE WHEN status = 'pendente' THEN 1 END) as pedidos_pendentes,
@@ -145,7 +167,7 @@ class DashboardService {
         COUNT(CASE WHEN status = 'comprado' THEN 1 END) as pedidos_comprados,
         COUNT(CASE WHEN status_entrega = 'chegou' THEN 1 END) as pedidos_chegados,
         COALESCE(SUM(CASE WHEN status IN ('aprovado', 'comprado', 'concluido') THEN valor_total END), 0) as total_valores_aprovados
-      FROM pedidos
+      FROM pedidos WHERE 1=1 ${periodoFilter(dias)}
     `);
     return {
       pedidos_pendentes: rows[0].pedidos_pendentes,
@@ -154,6 +176,39 @@ class DashboardService {
       pedidos_chegados: rows[0].pedidos_chegados,
       total_valores_aprovados: rows[0].total_valores_aprovados
     };
+  }
+
+  async getKpisDiretor(dias) {
+    const [rows] = await db.execute(`
+      SELECT
+        COUNT(CASE WHEN status = 'pendente' THEN 1 END) as pedidos_pendentes,
+        COUNT(CASE WHEN status IN ('pendente', 'em_compra', 'novo_orcamento')
+          AND ultima_atualizacao < DATE_SUB(NOW(), INTERVAL 48 HOUR) THEN 1 END) as pedidos_urgentes,
+        COUNT(CASE WHEN status = 'aprovado' THEN 1 END) as pedidos_aprovados
+      FROM pedidos WHERE 1=1 ${periodoFilter(dias)}
+    `);
+    return {
+      pedidos_pendentes: rows[0].pedidos_pendentes,
+      pedidos_urgentes: rows[0].pedidos_urgentes,
+      pedidos_aprovados: rows[0].pedidos_aprovados
+    };
+  }
+
+  async getValoresPorMes(ano, dias) {
+    const period = periodoFilter(dias);
+    const yearFilter = period ? '' : ' AND YEAR(data_pedido) = ?';
+    const params = period ? [] : [ano || new Date().getFullYear()];
+    const [rows] = await db.execute(`
+      SELECT DATE_FORMAT(data_pedido, '%Y-%m') as mes,
+        COALESCE(SUM(CASE WHEN status IN ('aprovado', 'comprado', 'concluido') THEN valor_total END), 0) as valor_aprovado,
+        COALESCE(SUM(CASE WHEN status = 'pendente' THEN valor_total END), 0) as valor_pendente,
+        COUNT(*) as total_pedidos
+      FROM pedidos
+      WHERE 1=1 ${yearFilter} ${period}
+      GROUP BY DATE_FORMAT(data_pedido, '%Y-%m')
+      ORDER BY mes
+    `, params);
+    return rows;
   }
 
   async getGastosMensais() {
@@ -193,7 +248,7 @@ class DashboardService {
     return rows;
   }
 
-  async getRankingSolicitantes(limit = 10) {
+  async getRankingSolicitantes(limit = 10, dias) {
     const [rows] = await db.query(`
       SELECT u.id, u.nome, u.nick, COUNT(p.id) as total_pedidos,
         SUM(CASE WHEN p.status = 'pendente' THEN 1 ELSE 0 END) as pedidos_pendentes,
@@ -201,6 +256,7 @@ class DashboardService {
         COALESCE(SUM(p.valor_total), 0) as valor_total
       FROM pedidos p
       INNER JOIN usuarios u ON u.id = p.usuario_id
+      WHERE 1=1 ${periodoFilter(dias, 'p.')}
       GROUP BY p.usuario_id
       ORDER BY total_pedidos DESC
       LIMIT ?
@@ -215,6 +271,21 @@ class DashboardService {
       WHERE status IN ('aprovado', 'rejeitado') AND data_aprovacao IS NOT NULL
     `);
     return { media_dias: parseFloat(rows[0].media_dias.toFixed(1)) };
+  }
+
+  async getTempoMedioResposta(dias) {
+    const [rows] = await db.execute(`
+      SELECT COALESCE(AVG(TIMESTAMPDIFF(HOUR, p.data_pedido, p.data_aprovacao)), 0) as media_horas,
+        COUNT(*) as total_respondidos
+      FROM pedidos p
+      WHERE p.data_aprovacao IS NOT NULL
+        AND p.data_aprovacao > p.data_pedido
+        ${periodoFilter(dias, 'p.')}
+    `);
+    return {
+      media_horas: Number(rows[0].media_horas) || 0,
+      total_respondidos: Number(rows[0].total_respondidos) || 0
+    };
   }
 
   async getPedidosRejeitados() {

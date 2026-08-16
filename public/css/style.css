@@ -421,6 +421,46 @@ tr.order-urgent td:first-child {
   background-color: #3a1414 !important;
 }
 
+/* ===== ORDER TEMPO CELL ===== */
+.tempo-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 150px;
+}
+
+.tempo-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .72rem;
+  font-weight: 600;
+  color: #6c757d;
+  white-space: nowrap;
+}
+
+.tempo-row i {
+  font-size: .7rem;
+  color: var(--bs-secondary);
+  opacity: .8;
+}
+
+.tempo-row.tempo-ok i {
+  color: #198754;
+}
+
+.tempo-row.tempo-ok {
+  color: #155724;
+}
+
+[data-bs-theme="dark"] .tempo-row {
+  color: #adb5bd;
+}
+
+[data-bs-theme="dark"] .tempo-row.tempo-ok {
+  color: #6dd64d;
+}
+
 /* ===== PROFILE BADGES ===== */
 .perfil-badge {
   display: inline-flex;

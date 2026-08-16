@@ -78,6 +78,58 @@
   font-weight: 600;
 }
 
+/* Period Filter Bar */
+.dash-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin: 18px 0 4px;
+  box-shadow: var(--shadow-card);
+}
+
+.dash-filter-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-right: 6px;
+  white-space: nowrap;
+}
+
+.dash-filter-btn {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.dash-filter-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.dash-filter-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(249, 168, 38, 0.35);
+}
+
+[data-bs-theme="dark"] .dash-filter-btn {
+  background: rgba(255, 255, 255, 0.05);
+}
+
 /* KPI Cards Grid */
 .kpi-grid {
   display: grid;
@@ -85,9 +137,15 @@
   gap: 24px;
 }
 
-.kpi-grid .kpi-card:nth-child(-n+3) { grid-column: span 2; }
-.kpi-grid .kpi-card:nth-child(4) { grid-column: 2 / span 2; }
-.kpi-grid .kpi-card:nth-child(5) { grid-column: 4 / span 2; }
+.kpi-grid .kpi-card:nth-child(-n+6) { grid-column: span 2; }
+
+.kpi-grid.kpi-grid-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.kpi-grid.kpi-grid-4 .kpi-card {
+  grid-column: auto;
+}
 
 .kpi-card {
   background: var(--card);
@@ -156,6 +214,10 @@
   color: var(--text);
   line-height: 1.2;
   letter-spacing: -0.5px;
+}
+
+[data-bs-theme="dark"] .kpi-content .kpi-value {
+  color: #ffffff;
 }
 
 .kpi-footer {
@@ -239,6 +301,10 @@
 }
 
 .chart-card.table-card {
+  grid-column: 1 / -1;
+}
+
+.chart-card.chart-wide {
   grid-column: 1 / -1;
 }
 
@@ -494,6 +560,48 @@
   font-size: 16px;
 }
 
+.rank-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 0 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  transition: all var(--transition);
+}
+
+.rank-filter:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(249, 168, 38, 0.15);
+}
+
+.rank-filter i {
+  color: var(--text-light);
+  font-size: 13px;
+}
+
+.rank-filter-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 9px 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.rank-filter-input::placeholder {
+  color: var(--text-light);
+  opacity: 0.7;
+}
+
+[data-bs-theme="dark"] .rank-filter {
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .rank-empty {
   display: flex;
   flex-direction: column;
@@ -516,6 +624,23 @@
 .rank-card canvas {
   width: 100% !important;
   max-height: 260px;
+}
+
+.rank-card .rank-scroll {
+  max-height: 340px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) transparent;
+}
+
+.rank-card .rank-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.rank-card .rank-scroll::-webkit-scrollbar-thumb {
+  background: var(--accent);
+  border-radius: 8px;
 }
 
 .rank-table {
@@ -605,13 +730,28 @@
   font-weight: 600;
 }
 
+.rank-table .rank-sub {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-light);
+}
+
 .rank-table .rank-stat {
   font-weight: 700;
   color: var(--primary);
 }
 
+.rank-table .rank-value {
+  font-weight: 600;
+  color: var(--primary);
+}
+
 [data-bs-theme="dark"] .rank-table .rank-stat {
   color: var(--accent);
+}
+
+[data-bs-theme="dark"] .rank-table .rank-value {
+  color: #ffffff;
 }
 
 /* Placa Search */
@@ -913,11 +1053,13 @@
 @media (max-width: 1200px) {
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .kpi-grid .kpi-card { grid-column: auto; }
+  .kpi-grid.kpi-grid-4 { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 992px) {
   .kpi-grid { grid-template-columns: 1fr; }
   .kpi-grid .kpi-card { grid-column: auto; }
+  .kpi-grid.kpi-grid-4 { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 768px) {

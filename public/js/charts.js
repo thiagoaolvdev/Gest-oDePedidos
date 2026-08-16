@@ -338,6 +338,293 @@ function createHorizontalBarChart(canvasId, labels, data, label, barColor) {
   });
 }
 
+function createComboChart(canvasId, labels, aprovados, pendentes, pedidos) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  const isDark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+  const accent = isDark ? '#F9A826' : '#0B2545';
+  const axisColor = isDark ? '#7d8590' : '#8899AA';
+  _chartInstances[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          type: 'bar',
+          label: 'Valores Aprovados',
+          data: aprovados,
+          backgroundColor: 'rgba(46, 204, 113, 0.85)',
+          hoverBackgroundColor: '#2ECC71',
+          borderRadius: 6,
+          borderSkipped: false,
+          maxBarThickness: 28
+        },
+        {
+          type: 'bar',
+          label: 'Valores Pendentes',
+          data: pendentes,
+          backgroundColor: 'rgba(243, 156, 18, 0.85)',
+          hoverBackgroundColor: '#F39C12',
+          borderRadius: 6,
+          borderSkipped: false,
+          maxBarThickness: 28
+        },
+        {
+          type: 'line',
+          label: 'Total de Pedidos',
+          data: pedidos,
+          borderColor: accent,
+          backgroundColor: accent,
+          borderWidth: 2.5,
+          tension: 0.4,
+          pointBackgroundColor: accent,
+          pointBorderColor: isDark ? '#161b22' : '#fff',
+          pointBorderWidth: 2,
+          pointRadius: 4,
+          pointHoverRadius: 7,
+          yAxisID: 'y1',
+          fill: false
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      animation: { duration: 800, easing: 'easeOutQuart' },
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { font: { size: 11, weight: '500' }, padding: 14, usePointStyle: true, pointStyleWidth: 8, color: getChartTextColor() }
+        },
+        tooltip: {
+          backgroundColor: getChartTooltipBg(),
+          padding: 12,
+          cornerRadius: 10,
+          titleFont: { size: 12, weight: '600' },
+          bodyFont: { size: 13 },
+          callbacks: {
+            label: function (c) {
+              if (c.dataset.type === 'line') return ` Total de Pedidos: ${c.parsed.y}`;
+              return ` ${c.dataset.label}: ${fmtCurrency(c.parsed.y)}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          border: { display: false },
+          ticks: { font: { size: 11, weight: '500' }, color: getChartTextColor() }
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: getChartGridColor() },
+          border: { display: false },
+          ticks: {
+            font: { size: 11, weight: '500' },
+            color: getChartTextColor(),
+            callback: function (v) {
+              if (Math.abs(v) >= 1000) return (v / 1000) + 'k';
+              return v;
+            }
+          }
+        },
+        y1: {
+          beginAtZero: true,
+          position: 'right',
+          grid: { display: false },
+          border: { display: false },
+          ticks: { stepSize: 1, font: { size: 11, weight: '500' }, color: axisColor }
+        }
+      }
+    }
+  });
+}
+
+function createPedidosValoresHoriz(canvasId, labels, pedidos, valores) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  const isDark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+  const axisColor = isDark ? '#7d8590' : '#8899AA';
+  _chartInstances[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Pedidos',
+          data: pedidos,
+          backgroundColor: isDark ? 'rgba(249, 168, 38, 0.85)' : 'rgba(11, 37, 69, 0.85)',
+          borderRadius: 6,
+          borderSkipped: false,
+          maxBarThickness: 14,
+          xAxisID: 'x'
+        },
+        {
+          label: 'Valores Gastos',
+          data: valores,
+          backgroundColor: 'rgba(46, 204, 113, 0.8)',
+          borderRadius: 6,
+          borderSkipped: false,
+          maxBarThickness: 14,
+          xAxisID: 'x1'
+        }
+      ]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: true,
+      animation: { duration: 800, easing: 'easeOutQuart' },
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { font: { size: 11, weight: '500' }, padding: 14, usePointStyle: true, pointStyleWidth: 8, color: getChartTextColor() }
+        },
+        tooltip: {
+          backgroundColor: getChartTooltipBg(),
+          padding: 12,
+          cornerRadius: 10,
+          displayColors: false,
+          callbacks: {
+            label: function (c) {
+              if (c.dataset.xAxisID === 'x1') return ` ${c.dataset.label}: ${fmtCurrency(c.parsed.x)}`;
+              return ` ${c.dataset.label}: ${c.parsed.x}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          position: 'top',
+          grid: { color: getChartGridColor() },
+          border: { display: false },
+          ticks: { stepSize: 1, font: { size: 10, weight: '500' }, color: getChartTextColor() }
+        },
+        x1: {
+          beginAtZero: true,
+          position: 'bottom',
+          grid: { display: false },
+          border: { display: false },
+          ticks: {
+            font: { size: 10, weight: '500' },
+            color: axisColor,
+            callback: function (v) {
+              if (Math.abs(v) >= 1000) return (v / 1000) + 'k';
+              return v;
+            }
+          }
+        },
+        y: {
+          grid: { display: false },
+          border: { display: false },
+          ticks: { font: { size: 11, weight: '600' }, color: getChartTextColor() }
+        }
+      }
+    }
+  });
+}
+
+function createPedidosValoresLinha(canvasId, labels, pedidos, valores) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  const isDark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+  const accent = isDark ? '#F9A826' : '#0B2545';
+  const axisColor = isDark ? '#7d8590' : '#8899AA';
+  _chartInstances[canvasId] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Pedidos',
+          data: pedidos,
+          borderColor: accent,
+          backgroundColor: accent,
+          borderWidth: 2.5,
+          tension: 0.4,
+          pointBackgroundColor: accent,
+          pointBorderColor: isDark ? '#161b22' : '#fff',
+          pointBorderWidth: 2,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          yAxisID: 'y1',
+          fill: false
+        },
+        {
+          label: 'Valores',
+          data: valores,
+          borderColor: '#2ECC71',
+          backgroundColor: '#2ECC71',
+          borderWidth: 2.5,
+          tension: 0.4,
+          pointBackgroundColor: '#2ECC71',
+          pointBorderColor: isDark ? '#161b22' : '#fff',
+          pointBorderWidth: 2,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          yAxisID: 'y',
+          fill: false
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      animation: { duration: 800, easing: 'easeOutQuart' },
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { font: { size: 11, weight: '500' }, padding: 14, usePointStyle: true, pointStyleWidth: 8, color: getChartTextColor() }
+        },
+        tooltip: {
+          backgroundColor: getChartTooltipBg(),
+          padding: 12,
+          cornerRadius: 10,
+          titleFont: { size: 12, weight: '600' },
+          bodyFont: { size: 13 },
+          callbacks: {
+            label: function (c) {
+              if (c.dataset.yAxisID === 'y1') return ` ${c.dataset.label}: ${c.parsed.y}`;
+              return ` ${c.dataset.label}: ${fmtCurrency(c.parsed.y)}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          border: { display: false },
+          ticks: { font: { size: 11, weight: '500' }, color: getChartTextColor() }
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: getChartGridColor() },
+          border: { display: false },
+          ticks: {
+            font: { size: 11, weight: '500' },
+            color: getChartTextColor(),
+            callback: function (v) {
+              if (Math.abs(v) >= 1000) return (v / 1000) + 'k';
+              return v;
+            }
+          }
+        },
+        y1: {
+          beginAtZero: true,
+          position: 'right',
+          grid: { display: false },
+          border: { display: false },
+          ticks: { stepSize: 1, font: { size: 11, weight: '500' }, color: axisColor }
+        }
+      }
+    }
+  });
+}
+
 function createRadarChart(canvasId, labels, data, label, color) {
   const ctx = document.getElementById(canvasId);
   if (!ctx) return;

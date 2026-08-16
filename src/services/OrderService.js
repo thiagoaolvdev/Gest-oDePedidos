@@ -64,6 +64,7 @@ class OrderService {
     }
 
     await this.repo.updateStatus(orderId, status, { valor_total: valorTotal });
+    await this._registrarHistorico(orderId, userId, status, 'Pedido criado');
     await registerAudit({ userId, action: 'create', entity: 'pedidos', entityId: orderId, newValues: { numero, valor_total: valorTotal }, ip });
     logger.info(`Pedido criado: ${numero} - R$ ${valorTotal}`);
 
@@ -129,6 +130,9 @@ class OrderService {
     }
 
     await this.repo.update(id, updateData);
+    if (updateData.status && updateData.status !== order.status) {
+      await this._registrarHistorico(id, userId, updateData.status, 'Cotação enviada pela logística');
+    }
     await registerAudit({ userId, action: 'update', entity: 'pedidos', entityId: id, oldValues, newValues: safeData, ip });
     logger.info(`Pedido atualizado: ${order.numero}`);
 
@@ -175,6 +179,7 @@ class OrderService {
         if (data.valor_total !== undefined) {
           extra.valor_total = data.valor_total;
           await this.repo.updateStatus(id, 'aguardando_aprovacao', { ...extra, valor_total: data.valor_total });
+          await this._registrarHistorico(id, userId, 'aguardando_aprovacao', 'Cotação enviada pela logística');
           await registerAudit({ userId, action: 'status_update', entity: 'pedidos', entityId: id, oldValues, newValues: { status: 'aguardando_aprovacao' }, ip });
           await this._notifyRequesterForApproval(id, order.numero, data.valor_total);
           if (Number(data.valor_total) > authConfig.directorApprovalLimit) {
@@ -186,6 +191,7 @@ class OrderService {
     }
 
     await this.repo.updateStatus(id, novoStatus, extra);
+    await this._registrarHistorico(id, userId, novoStatus);
     await registerAudit({ userId, action: 'status_update', entity: 'pedidos', entityId: id, oldValues, newValues: { status: novoStatus }, ip });
     logger.info(`Pedido ${order.numero} status: ${novoStatus}`);
 
@@ -221,6 +227,7 @@ class OrderService {
 
     const oldStatusEntrega = order.status_entrega;
     await this.repo.updateEntrega(id, status_entrega);
+    await this._registrarHistorico(id, userId, `entrega_${status_entrega}`, `Entrega atualizada para "${status_entrega}"`);
 
     if (status_entrega === 'chegou' && oldStatusEntrega !== 'chegou' && order.status === 'comprado') {
       const fullOrder = await this.repo.findFullById(id);
@@ -261,6 +268,7 @@ class OrderService {
       data_aprovacao: new Date().toISOString().slice(0, 19).replace('T', ' ')
     });
 
+    await this._registrarHistorico(id, userId, 'aprovado', 'Pedido aprovado');
     await registerAudit({ userId, action: 'approve', entity: 'pedidos', entityId: id, oldValues: { status: order.status }, newValues: { status: 'aprovado' }, ip });
     logger.info(`Pedido ${order.numero} aprovado por usuário ${userId}`);
 
@@ -303,6 +311,7 @@ class OrderService {
       data_aprovacao: new Date().toISOString().slice(0, 19).replace('T', ' ')
     });
 
+    await this._registrarHistorico(id, userId, 'rejeitado', 'Pedido cancelado/rejeitado');
     await registerAudit({ userId, action: 'reject', entity: 'pedidos', entityId: id, oldValues: { status: order.status }, newValues: { status: 'rejeitado', motivo: data.motivo }, ip });
     logger.info(`Pedido ${order.numero} cancelado por usuário ${userId}`);
 
@@ -341,6 +350,7 @@ class OrderService {
       data_aprovacao: new Date().toISOString().slice(0, 19).replace('T', ' ')
     });
 
+    await this._registrarHistorico(id, userId, 'novo_orcamento', 'Novo orçamento solicitado');
     await registerAudit({ userId, action: 'request_new_quote', entity: 'pedidos', entityId: id, oldValues: { status: order.status }, newValues: { status: 'novo_orcamento', motivo }, ip });
     logger.info(`Pedido ${order.numero} novo orçamento solicitado por usuário ${userId}`);
 
@@ -382,6 +392,14 @@ class OrderService {
     await registerAudit({ userId, action: 'delete', entity: 'pedidos', entityId: id, oldValues: { numero: order.numero }, ip });
     logger.info(`Pedido excluído: ${order.numero}`);
     return true;
+  }
+
+  async _registrarHistorico(pedidoId, userId, status, descricao = '') {
+    const db = require('../config/database');
+    await db.query(
+      'INSERT INTO pedido_historico (pedido_id, usuario_id, status, descricao) VALUES (?, ?, ?, ?)',
+      [pedidoId, userId || null, status, descricao || null]
+    );
   }
 
   async _notifyDirectors(orderId, numero, valorTotal) {

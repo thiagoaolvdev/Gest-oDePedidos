@@ -18,14 +18,21 @@ const pedidosPorMes = async (req, res, next) => {
 
 const pedidosPorVeiculo = async (req, res, next) => {
   try {
-    const data = await service.getPedidosPorVeiculo(req.query.limit);
+    const data = await service.getPedidosPorVeiculo(req.query.limit, req.query.dias);
     res.json(data);
   } catch (err) { next(err); }
 };
 
 const pedidosPorUsuario = async (req, res, next) => {
   try {
-    const data = await service.getPedidosPorUsuario(req.query.limit);
+    const data = await service.getPedidosPorUsuario(req.query.limit, req.query.dias);
+    res.json(data);
+  } catch (err) { next(err); }
+};
+
+const pedidosPorSetor = async (req, res, next) => {
+  try {
+    const data = await service.getPedidosPorSetor(req.query.dias);
     res.json(data);
   } catch (err) { next(err); }
 };
@@ -39,7 +46,7 @@ const gastosPorFornecedor = async (req, res, next) => {
 
 const pedidosPorStatus = async (req, res, next) => {
   try {
-    const data = await service.getPedidosPorStatus();
+    const data = await service.getPedidosPorStatus(req.query.dias);
     res.json(data);
   } catch (err) { next(err); }
 };
@@ -67,7 +74,21 @@ const kpi = async (req, res, next) => {
 
 const kpis = async (req, res, next) => {
   try {
-    const data = await service.getKpis();
+    const data = await service.getKpis(req.query.dias);
+    res.json(data);
+  } catch (err) { next(err); }
+};
+
+const kpisDiretor = async (req, res, next) => {
+  try {
+    const data = await service.getKpisDiretor(req.query.dias);
+    res.json(data);
+  } catch (err) { next(err); }
+};
+
+const valoresPorMes = async (req, res, next) => {
+  try {
+    const data = await service.getValoresPorMes(req.query.ano, req.query.dias);
     res.json(data);
   } catch (err) { next(err); }
 };
@@ -95,7 +116,7 @@ const recentes = async (req, res, next) => {
 
 const rankingSolicitantes = async (req, res, next) => {
   try {
-    const data = await service.getRankingSolicitantes(req.query.limit);
+    const data = await service.getRankingSolicitantes(req.query.limit, req.query.dias);
     res.json(data);
   } catch (err) { next(err); }
 };
@@ -103,6 +124,13 @@ const rankingSolicitantes = async (req, res, next) => {
 const tempoMedioOrcamento = async (req, res, next) => {
   try {
     const data = await service.getTempoMedioOrcamento();
+    res.json(data);
+  } catch (err) { next(err); }
+};
+
+const tempoMedioResposta = async (req, res, next) => {
+  try {
+    const data = await service.getTempoMedioResposta(req.query.dias);
     res.json(data);
   } catch (err) { next(err); }
 };
@@ -135,4 +163,4 @@ const suggestPlacas = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { summary, pedidosPorMes, pedidosPorVeiculo, pedidosPorUsuario, gastosPorFornecedor, pedidosPorStatus, gastosPorPeriodo, topUsuarios, kpi, kpis, gastosMensais, desempenhoSetores, recentes, rankingSolicitantes, tempoMedioOrcamento, pedidosRejeitados, pedidosAceitos, pedidosPorPlaca, suggestPlacas };
+module.exports = { summary, pedidosPorMes, pedidosPorVeiculo, pedidosPorUsuario, pedidosPorSetor, gastosPorFornecedor, pedidosPorStatus, gastosPorPeriodo, topUsuarios, kpi, kpis, kpisDiretor, valoresPorMes, gastosMensais, desempenhoSetores, recentes, rankingSolicitantes, tempoMedioOrcamento, tempoMedioResposta, pedidosRejeitados, pedidosAceitos, pedidosPorPlaca, suggestPlacas };

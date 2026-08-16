@@ -46,7 +46,15 @@ class OrderRepository {
     const [fotos] = await db.query(
       'SELECT id, url, created_at FROM pedido_fotos WHERE pedido_id = ? ORDER BY created_at DESC', [id]
     );
-    return { ...rows[0], itens, fotos };
+    const [historico] = await db.query(`
+      SELECT h.id, h.status, h.descricao, h.created_at,
+        COALESCE(u.nome, 'Sistema') as usuario_nome
+      FROM pedido_historico h
+      LEFT JOIN usuarios u ON u.id = h.usuario_id
+      WHERE h.pedido_id = ?
+      ORDER BY h.created_at ASC
+    `, [id]);
+    return { ...rows[0], itens, fotos, historico };
   }
 
   async findAllWithFilters(filters, page, limit) {

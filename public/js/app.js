@@ -1,6 +1,7 @@
 let user = null;
 let charts = {};
 let currentPage = 'dashboard';
+let dashDias = 0;
 
 const ROLE_INFO = {
   mecanico: { label: 'Mecânico', icon: 'bi-wrench', color: 'secondary', desc: 'Execução dos serviços nos veículos' },
@@ -128,7 +129,7 @@ function navigate(page) {
   });
   const titles = {
     dashboard: 'Dashboard', vehicles: 'Veículos', marcas: 'Marcas', modelos: 'Modelos', parts: 'Peças',
-    orders: 'Pedidos', orders_urgentes: 'Urgentes', orders_pendente: 'Pendentes', orders_aprovado: 'Aprovados', orders_aguardando_aprovacao: 'Aguardando Aprovação',
+    orders: 'Pedidos', orders_urgentes: 'Urgentes', orders_pendente: 'Pendentes', orders_aprovado: 'Aprovados', orders_aguardando_aprovacao: 'Aguardando Aprovação', orders_comprado: 'Comprados',
     entregas_chegou: 'Entregues',
     users: 'Usuários', audit: 'Auditoria',
     fornecedores: 'Fornecedores', categorias: 'Categorias', profile: 'Meu Perfil'
@@ -145,7 +146,7 @@ function navigate(page) {
 function getPageIcon(page) {
   const icons = {
     dashboard: 'bi-speedometer2', vehicles: 'bi-truck', marcas: 'bi-bookmark', modelos: 'bi-diagram-3', parts: 'bi-gear',
-    orders: 'bi-clipboard-check', orders_urgentes: 'bi-alarm', orders_pendente: 'bi-clock', orders_aprovado: 'bi-check-circle', orders_aguardando_aprovacao: 'bi-hourglass-split',
+    orders: 'bi-clipboard-check', orders_urgentes: 'bi-alarm', orders_pendente: 'bi-clock', orders_aprovado: 'bi-check-circle', orders_aguardando_aprovacao: 'bi-hourglass-split', orders_comprado: 'bi-cart-check',
     entregas_chegou: 'bi-truck',
     users: 'bi-people', audit: 'bi-journal-text',
     fornecedores: 'bi-shop', categorias: 'bi-tags', profile: 'bi-person-circle'
@@ -187,7 +188,53 @@ function modal(html, size = 'md') {
 
 // ===== HELPERS =====
 function fmtDate(d) { return d ? new Date(d).toLocaleDateString('pt-BR') : '-'; }
+function fmtDateTime(d) { return d ? new Date(d).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'; }
 function fmtCurrency(v) { return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0); }
+function fmtTempoRelativo(ts) {
+  if (!ts) return '-';
+  const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (diff < 0) return '-';
+  const min = Math.floor(diff / 60);
+  const h = Math.floor(diff / 3600);
+  const d = Math.floor(diff / 86400);
+  if (d >= 1) return d === 1 ? '1 dia' : `${d} dias`;
+  if (h >= 1) return h === 1 ? '1 hora' : `${h} horas`;
+  if (min >= 1) return `${min} min`;
+  return 'agora';
+}
+function fmtDuracao(inicio, fim) {
+  if (!inicio || !fim) return null;
+  const diff = Math.floor((new Date(fim).getTime() - new Date(inicio).getTime()) / 1000);
+  if (diff < 0) return null;
+  const min = Math.floor(diff / 60);
+  const h = Math.floor(diff / 3600);
+  const d = Math.floor(diff / 86400);
+  if (d >= 1) return d === 1 ? '1 dia' : `${d} dias`;
+  if (h >= 1) return h === 1 ? '1 hora' : `${h} horas`;
+  if (min >= 1) return `${min} min`;
+  return '< 1 min';
+}
+function fmtTempoMedio(h) {
+  h = Math.round(Number(h) || 0);
+  if (h <= 0) return '0h';
+  const d = Math.floor(h / 24);
+  const r = h % 24;
+  if (d > 0) return `${d}d ${r}h`;
+  return `${h}h`;
+}
+function renderTempoCell(o) {
+  const criado = fmtTempoRelativo(o.data_pedido);
+  const resp = o.data_aprovacao ? fmtDuracao(o.data_pedido, o.data_aprovacao) : null;
+  return `<div class="tempo-cell">
+    <div class="tempo-row"><i class="bi bi-calendar-plus"></i><span>Criado há ${criado}</span></div>
+    <div class="tempo-row ${resp ? 'tempo-ok' : ''}"><i class="bi ${resp ? 'bi-check2-circle' : 'bi-hourglass-split'}"></i><span>${resp ? 'Resposta: ' + resp : 'Aguardando resposta'}</span></div>
+  </div>`;
+}
+function renderHistoricoBadge(s) {
+  const labels = { pendente: 'Pendente', em_compra: 'Em Compra', aguardando_aprovacao: 'Aguarda Aprovação', novo_orcamento: 'Novo Orçamento', aprovado: 'Aprovado', rejeitado: 'Cancelado', comprado: 'Comprado', concluido: 'Concluído', entrega_pendente: 'Entrega: Pendente', entrega_em_transito: 'Entrega: Em Trânsito', entrega_chegou: 'Entrega: Chegou' };
+  const classes = { pendente: 'pendente', em_compra: 'em_compra', aguardando_aprovacao: 'aguardando_aprovacao', novo_orcamento: 'novo_orcamento', aprovado: 'aprovado', rejeitado: 'rejeitado', comprado: 'comprado', concluido: 'concluido', entrega_pendente: 'pendente', entrega_em_transito: 'em_compra', entrega_chegou: 'concluido' };
+  return `<span class="status-badge status-${classes[s] || 'pendente'}">${labels[s] || s}</span>`;
+}
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -556,8 +603,9 @@ async function openNotif(id, pedidoId) {
 // ===== PAGE RENDERERS =====
 const PAGES = {};
 
-function kpiCards(k) {
+function kpiCards(k, t) {
   k = k || {};
+  t = t || {};
   return `
     <div class="kpi-card kpi-warning">
       <div class="kpi-icon" style="background:rgba(243,156,18,0.12);color:var(--warning)">
@@ -572,7 +620,7 @@ function kpiCards(k) {
       </div>
     </div>
     <div class="kpi-card kpi-primary">
-      <div class="kpi-icon" style="background:rgba(11,37,69,0.1);color:var(--primary)">
+      <div class="kpi-icon" style="background:rgba(11,37,69,0.1);color:var(--text)">
         <i class="fa-solid fa-hourglass-half"></i>
       </div>
       <div class="kpi-content">
@@ -618,18 +666,138 @@ function kpiCards(k) {
           <span class="kpi-sub"><i class="fa-solid fa-circle-check me-1"></i>Soma dos valores aprovados</span>
         </div>
       </div>
+    </div>
+    <div class="kpi-card kpi-info">
+      <div class="kpi-icon" style="background:rgba(52,152,219,0.12);color:var(--info)">
+        <i class="fa-solid fa-stopwatch"></i>
+      </div>
+      <div class="kpi-content">
+        <div class="kpi-label"><i class="fa-solid fa-bolt me-1"></i>Tempo Médio de Resposta</div>
+        <div class="kpi-value">${fmtTempoMedio(t.media_horas)}</div>
+        <div class="kpi-footer">
+          <span class="kpi-sub"><i class="fa-solid fa-check me-1"></i>${t.total_respondidos ?? 0} pedido(s) respondidos</span>
+        </div>
+      </div>
     </div>`;
 }
 
+function kpiCardsDiretor(k, t) {
+  k = k || {};
+  t = t || {};
+  return `
+    <div class="kpi-card kpi-warning">
+      <div class="kpi-icon" style="background:rgba(243,156,18,0.12);color:var(--warning)">
+        <i class="fa-solid fa-clock"></i>
+      </div>
+      <div class="kpi-content">
+        <div class="kpi-label"><i class="fa-solid fa-spinner me-1"></i>Pedidos Pendentes</div>
+        <div class="kpi-value">${k.pedidos_pendentes ?? 0}</div>
+        <div class="kpi-footer">
+          <span class="kpi-sub"><i class="fa-solid fa-hourglass me-1"></i>Aguardando andamento</span>
+        </div>
+      </div>
+    </div>
+    <div class="kpi-card kpi-danger">
+      <div class="kpi-icon" style="background:rgba(231,76,60,0.12);color:#e74c3c">
+        <i class="fa-solid fa-bell"></i>
+      </div>
+      <div class="kpi-content">
+        <div class="kpi-label"><i class="fa-solid fa-bell me-1"></i>Pedidos Urgentes</div>
+        <div class="kpi-value">${k.pedidos_urgentes ?? 0}</div>
+        <div class="kpi-footer">
+          <span class="kpi-sub"><i class="fa-solid fa-clock me-1"></i>+48h sem atualização</span>
+        </div>
+      </div>
+    </div>
+    <div class="kpi-card kpi-success">
+      <div class="kpi-icon" style="background:rgba(46,204,113,0.12);color:var(--success)">
+        <i class="fa-solid fa-circle-check"></i>
+      </div>
+      <div class="kpi-content">
+        <div class="kpi-label"><i class="fa-solid fa-check me-1"></i>Pedidos Aprovados</div>
+        <div class="kpi-value">${k.pedidos_aprovados ?? 0}</div>
+        <div class="kpi-footer">
+          <span class="kpi-sub"><i class="fa-solid fa-check-double me-1"></i>Aprovados pela diretoria</span>
+        </div>
+      </div>
+    </div>
+    <div class="kpi-card kpi-info">
+      <div class="kpi-icon" style="background:rgba(52,152,219,0.12);color:var(--info)">
+        <i class="fa-solid fa-stopwatch"></i>
+      </div>
+      <div class="kpi-content">
+        <div class="kpi-label"><i class="fa-solid fa-bolt me-1"></i>Tempo Médio de Resposta</div>
+        <div class="kpi-value">${fmtTempoMedio(t.media_horas)}</div>
+        <div class="kpi-footer">
+          <span class="kpi-sub"><i class="fa-solid fa-check me-1"></i>${t.total_respondidos ?? 0} pedido(s) respondidos</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ---------- DASHBOARD PERIOD FILTER ----------
+const DASH_PERIODOS = [
+  { dias: 0, label: 'Todos' },
+  { dias: 7, label: '7 dias' },
+  { dias: 15, label: '15 dias' },
+  { dias: 30, label: '30 dias' },
+  { dias: 60, label: '60 dias' },
+  { dias: 90, label: '90 dias' }
+];
+
+function dashFilterBar(active) {
+  return `
+    <div class="dash-filter-bar">
+      <span class="dash-filter-label"><i class="fa-solid fa-calendar-days me-1"></i>Período:</span>
+      ${DASH_PERIODOS.map(p => `
+        <button class="dash-filter-btn ${p.dias === active ? 'active' : ''}" data-dias="${p.dias}" onclick="setDashFilter(${p.dias})">${p.label}</button>`).join('')}
+    </div>`;
+}
+
+function setDashFilter(dias) {
+  dashDias = dias || 0;
+  PAGES.dashboard(dashDias);
+}
+
 // ---------- DASHBOARD ----------
-PAGES.dashboard = async function () {
+let RANK_VEIC_DADOS = [];
+
+const rankPosClass = (i) => i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
+const rankIcon = (i) => i === 0 ? '<i class="fa-solid fa-trophy"></i>' : i === 1 ? '<i class="fa-solid fa-medal"></i>' : i === 2 ? '<i class="fa-solid fa-award"></i>' : (i + 1);
+
+function renderRankVeicRows(dados) {
+  return (dados || []).map((r, i) => `
+    <tr>
+      <td><span class="rank-pos ${rankPosClass(i)}">${rankIcon(i)}</span></td>
+      <td class="rank-name"><i class="fa-solid fa-car me-1" style="color:var(--text-light);font-size:11px"></i>${r.placa || '-'}<br><small class="rank-sub">${[r.marca, r.modelo].filter(Boolean).join(' ') || ''}</small></td>
+      <td class="rank-stat text-end"><i class="fa-solid fa-clipboard me-1" style="font-size:11px"></i>${r.total}</td>
+      <td class="text-end rank-value"><i class="fa-solid fa-brazilian-real-sign me-1"></i>${fmtCurrency(r.valor)}</td>
+    </tr>`).join('');
+}
+
+function filterRankVeic(valor) {
+  const tbody = document.getElementById('rankVeicBody');
+  if (!tbody) return;
+  const termo = (valor || '').trim().toLowerCase();
+  const dados = !termo
+    ? RANK_VEIC_DADOS
+    : RANK_VEIC_DADOS.filter(r => [r.placa, r.marca, r.modelo].filter(Boolean).join(' ').toLowerCase().includes(termo));
+  tbody.innerHTML = dados.length
+    ? renderRankVeicRows(dados)
+    : '<tr><td colspan="4" style="text-align:center;padding:1.5rem;color:var(--text-light);"><i class="fa-solid fa-car-side mb-2" style="display:block;font-size:22px;opacity:.4"></i>Nenhum veículo encontrado</td></tr>';
+}
+
+PAGES.dashboard = async function (dias) {
+  dias = (typeof dias === 'number' ? dias : dashDias) || 0;
   const c = document.getElementById('pageContent');
   c.innerHTML = '<div class="dashboard"><div class="dash-loading"><div class="spinner"></div><span>Carregando dashboard...</span></div></div>';
   try {
+    const q = (url) => dias > 0 ? `${url}${url.includes('?') ? '&' : '?'}dias=${dias}` : url;
     const isFull = ['diretor', 'administrativo'].includes(user.perfil);
-    const [kpis, status] = await Promise.all([
-      API.get('/dashboard/kpis').catch(() => ({})),
-      API.get('/dashboard/pedidos-por-status').catch(() => [])
+    const [kpis, status, tempoMedio] = await Promise.all([
+      API.get(q('/dashboard/kpis')).catch(() => ({})),
+      API.get(q('/dashboard/pedidos-por-status')).catch(() => []),
+      API.get(q('/dashboard/tempo-medio-resposta')).catch(() => ({}))
     ]);
 
     if (!isFull) {
@@ -642,8 +810,9 @@ PAGES.dashboard = async function () {
             </div>
             <div class="dash-breadcrumb"><i class="fa-solid fa-house me-1"></i>Home / <span><i class="fa-solid fa-gauge me-1"></i>Dashboard</span></div>
           </div>
+          ${dashFilterBar(dias)}
           <div class="kpi-grid">
-            ${kpiCards(kpis)}
+            ${kpiCards(kpis, tempoMedio)}
           </div>
           <div class="charts-grid">
             <div class="chart-card">
@@ -661,120 +830,108 @@ PAGES.dashboard = async function () {
         createValoresPie('chartValores', status);
       }, 100);
     } else {
-      const [pMes, recentes, rankSol] = await Promise.all([
-        API.get('/dashboard/pedidos-por-mes').catch(() => []),
-        API.get('/dashboard/recentes?limit=8').catch(() => []),
-        API.get('/dashboard/ranking-solicitantes?limit=5').catch(() => [])
+      const [kpisDir, valoresMes, pedidosSetor, rankSol, rankVeic, tempoMedio] = await Promise.all([
+        API.get(q('/dashboard/kpis-diretor')).catch(() => ({})),
+        API.get(q('/dashboard/valores-por-mes')).catch(() => []),
+        API.get(q('/dashboard/pedidos-por-setor')).catch(() => []),
+        API.get(q('/dashboard/ranking-solicitantes?limit=1000')).catch(() => []),
+        API.get(q('/dashboard/pedidos-por-veiculo?limit=1000')).catch(() => []),
+        API.get(q('/dashboard/tempo-medio-resposta')).catch(() => ({}))
       ]);
 
-      const rankPosClass = (i) => i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
-      const rankIcon = (i) => i === 0 ? '<i class="fa-solid fa-trophy"></i>' : i === 1 ? '<i class="fa-solid fa-medal"></i>' : i === 2 ? '<i class="fa-solid fa-award"></i>' : (i + 1);
+      const rankVeicOrdenado = (rankVeic || []).slice().sort((a, b) => (b.valor || 0) - (a.valor || 0));
+      RANK_VEIC_DADOS = rankVeicOrdenado;
 
       c.innerHTML = `
         <div class="dashboard">
           <div class="dash-header">
             <div>
               <h1><i class="fa-solid fa-gauge-high me-2" style="color:var(--accent)"></i>Dashboard</h1>
-              <p class="dash-subtitle"><i class="fa-solid fa-chart-pie me-1"></i>Visao geral do sistema de pedidos e gestao</p>
+              <p class="dash-subtitle"><i class="fa-solid fa-chart-pie me-1"></i>Visão geral de pedidos e gastos</p>
             </div>
             <div class="dash-breadcrumb"><i class="fa-solid fa-house me-1"></i>Home / <span><i class="fa-solid fa-gauge me-1"></i>Dashboard</span></div>
           </div>
+          ${dashFilterBar(dias)}
 
-          <div class="kpi-grid">
-            ${kpiCards(kpis)}
+          <div class="kpi-grid kpi-grid-4">
+            ${kpiCardsDiretor(kpisDir, tempoMedio)}
           </div>
 
           <div class="charts-grid">
-            <div class="chart-card">
-              <div class="chart-title"><i class="fa-solid fa-chart-column"></i>Pedidos por Mes</div>
-              <canvas id="chartPedidosMes" height="260"></canvas>
+            <div class="chart-card chart-wide">
+              <div class="chart-title"><i class="fa-solid fa-chart-column"></i>Valores Aprovados x Pendentes por Mês</div>
+              <canvas id="chartValoresMes" height="300"></canvas>
             </div>
             <div class="chart-card">
-              <div class="chart-title"><i class="fa-solid fa-chart-pie"></i>Status dos Pedidos</div>
-              <canvas id="chartStatus" height="260"></canvas>
+              <div class="chart-title"><i class="fa-solid fa-chart-line"></i>Pedidos e Valores por Setor</div>
+              <canvas id="chartSetorLinha" height="300"></canvas>
             </div>
-            <div class="chart-card">
-              <div class="chart-title"><i class="fa-solid fa-chart-pie"></i>Valores Gastos (Aprovados) x Pendentes</div>
-              <canvas id="chartValores" height="260"></canvas>
-            </div>
-            <div class="chart-card">
-              <div class="chart-title"><i class="fa-solid fa-ranking-star"></i>Pedidos por Veiculo</div>
-              <canvas id="chartDesempenho" height="260"></canvas>
-            </div>
-          </div>
-
-          <div class="rankings-grid">
             <div class="rank-card">
-              <div class="rank-title"><i class="fa-solid fa-users"></i>Ranking de Solicitantes</div>
+              <div class="rank-title"><i class="fa-solid fa-users"></i>Ranking Geral</div>
+              <div class="rank-scroll">
               ${rankSol.length > 0 ? `
               <table class="rank-table">
-                <thead><tr><th><i class="fa-solid fa-medal"></i></th><th><i class="fa-solid fa-user me-1"></i>Solicitante</th><th class="text-end"><i class="fa-solid fa-hourglass-half me-1"></i>Pendentes</th><th class="text-end"><i class="fa-solid fa-check me-1"></i>Aprovados</th><th class="text-end"><i class="fa-solid fa-clipboard me-1"></i>Pedidos</th><th class="text-end"><i class="fa-solid fa-coins me-1"></i>Valor Total</th></tr></thead>
+                <thead><tr><th><i class="fa-solid fa-medal"></i></th><th><i class="fa-solid fa-user me-1"></i>Usuário</th><th class="text-end"><i class="fa-solid fa-clipboard me-1"></i>Pedidos</th><th class="text-end"><i class="fa-solid fa-coins me-1"></i>Valores Gastos</th></tr></thead>
                 <tbody>
                   ${rankSol.map((r, i) => `
                   <tr>
                     <td><span class="rank-pos ${rankPosClass(i)}">${rankIcon(i)}</span></td>
                     <td class="rank-name"><i class="fa-solid fa-user me-1" style="color:var(--text-light);font-size:11px"></i>${r.nome || '-'}</td>
-                    <td class="rank-stat text-end"><i class="fa-solid fa-hourglass-half me-1" style="font-size:11px"></i>${r.pedidos_pendentes ?? 0}</td>
-                    <td class="rank-stat text-end"><i class="fa-solid fa-check me-1" style="font-size:11px"></i>${r.pedidos_aprovados ?? 0}</td>
                     <td class="rank-stat text-end"><i class="fa-solid fa-clipboard me-1" style="font-size:11px"></i>${r.total_pedidos}</td>
-                    <td class="text-end" style="font-weight:600;color:var(--primary)"><i class="fa-solid fa-brazilian-real-sign me-1"></i>${fmtCurrency(r.valor_total)}</td>
+                    <td class="text-end rank-value"><i class="fa-solid fa-brazilian-real-sign me-1"></i>${fmtCurrency(r.valor_total)}</td>
                   </tr>`).join('')}
                 </tbody>
-              </table>` : '<div class="rank-empty"><i class="fa-solid fa-user-slash"></i><span>Nenhum solicitante registrado</span></div>'}
-            </div>
-          </div>
-
-          <div class="placa-search-section">
-            <div class="placa-search-header">
-              <i class="fa-solid fa-magnifying-glass-chart"></i>
-              <h3><i class="fa-solid fa-car me-1"></i>Consulta por Placa</h3>
-            </div>
-            <div class="placa-search-box">
-              <div class="placa-input-wrapper">
-                <input type="text" id="placaInput" placeholder="Digite a placa do veiculo (ex: ABC-1234)" maxlength="10" autocomplete="off">
-                <div id="placaSuggestions" class="placa-suggestions"></div>
+              </table>` : '<div class="rank-empty"><i class="fa-solid fa-user-slash"></i><span>Nenhum usuário registrado</span></div>'}
               </div>
-              <button onclick="buscarPorPlaca()"><i class="fa-solid fa-magnifying-glass"></i> Consultar</button>
             </div>
-            <div id="placaResult"></div>
-          </div>
-
-          <div class="chart-card table-card">
-            <div class="chart-title"><i class="fa-solid fa-table-list"></i>Pedidos Recentes</div>
-            <div class="table-wrapper">
-              <table class="recent-orders">
-                <thead>
-                  <tr><th><i class="fa-solid fa-hashtag me-1"></i>Pedido</th><th><i class="fa-solid fa-car me-1"></i>Veiculo</th><th><i class="fa-solid fa-user me-1"></i>Solicitante</th><th><i class="fa-solid fa-store me-1"></i>Fornecedor</th><th><i class="fa-solid fa-dollar-sign me-1"></i>Valor</th><th><i class="fa-solid fa-flag me-1"></i>Status</th><th><i class="fa-solid fa-calendar me-1"></i>Data</th><th><i class="fa-solid fa-user-gear me-1"></i>Responsavel</th><th class="text-end"><i class="fa-solid fa-gear me-1"></i>Acoes</th></tr>
-                </thead>
-                <tbody>
-                  ${!recentes.length ? '<tr><td colspan="9" class="recent-empty"><i class="fa-solid fa-inbox"></i>Nenhum pedido recente</td></tr>' : recentes.map(o => `
-                  <tr>
-                    <td><span class="order-num"><i class="fa-solid fa-receipt me-1"></i>${o.numero || '-'}</span></td>
-                    <td class="order-vehicle"><i class="fa-solid fa-car-side me-1" style="font-size:11px;color:var(--text-light)"></i>${o.placa || '-'}</td>
-                    <td class="order-client"><i class="fa-solid fa-user me-1" style="font-size:10px;color:var(--text-light)"></i>${o.solicitante || '-'}</td>
-                    <td class="order-client"><i class="fa-solid fa-store me-1" style="font-size:10px;color:var(--text-light)"></i>${o.fornecedor || '-'}</td>
-                    <td class="order-value">${fmtCurrency(o.valor_total)}</td>
-                    <td><span class="badge-status badge-${o.status || 'pendente'}"><i class="fa-solid ${o.status === 'concluido' ? 'fa-circle-check' : o.status === 'pendente' ? 'fa-clock' : o.status === 'rejeitado' ? 'fa-circle-xmark' : o.status === 'aprovado' ? 'fa-circle-check' : o.status === 'em_compra' ? 'fa-cart-shopping' : 'fa-spinner'} me-1"></i>${statusLabel(o.status)}</span></td>
-                    <td class="order-date"><i class="fa-regular fa-calendar me-1"></i>${fmtDate(o.data_pedido)}</td>
-                    <td class="order-responsible"><i class="fa-solid fa-user-gear me-1" style="font-size:10px;color:var(--text-light)"></i>${o.responsavel || '-'}</td>
-                    <td><div class="order-actions justify-content-end">
-                      <button class="btn-view" onclick="viewOrder(${o.id})" title="Visualizar"><i class="fa-solid fa-eye"></i></button>
-                      ${(o.status === 'pendente' || o.status === 'novo_orcamento') && user.perfil === 'logistica' ? `<button class="btn-edit" onclick="openOrder(${o.id})" title="Editar"><i class="fa-solid fa-pen-to-square"></i></button>` : ''}
-                      ${o.status === 'pendente' && user.perfil === 'logistica' ? `<button class="btn-delete" onclick="delOrder(${o.id})" title="Excluir"><i class="fa-solid fa-trash-can"></i></button>` : ''}
-                    </div></td>
-                  </tr>
-                  `).join('')}
+            <div class="rank-card">
+              <div class="rank-title"><i class="fa-solid fa-car-side"></i>Ranking de Valores Gastos por Veículo</div>
+              <div class="rank-filter">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="veicFilter" class="rank-filter-input" placeholder="Buscar por placa, marca ou modelo..." oninput="filterRankVeic(this.value)">
+              </div>
+              <div class="rank-scroll">
+              ${rankVeicOrdenado.length > 0 ? `
+              <table class="rank-table">
+                <thead><tr><th><i class="fa-solid fa-medal"></i></th><th><i class="fa-solid fa-car me-1"></i>Veículo</th><th class="text-end"><i class="fa-solid fa-clipboard me-1"></i>Pedidos</th><th class="text-end"><i class="fa-solid fa-coins me-1"></i>Valor Gasto</th></tr></thead>
+                <tbody id="rankVeicBody">
+                  ${renderRankVeicRows(rankVeicOrdenado)}
                 </tbody>
-              </table>
+              </table>` : '<div class="rank-empty"><i class="fa-solid fa-car-side"></i><span>Nenhum veículo registrado</span></div>'}
+              </div>
             </div>
           </div>
         </div>`;
 
-      setTimeout(async () => {
-        const pvData = await API.get('/dashboard/pedidos-por-veiculo?limit=8').catch(() => []);
-        initCharts({ pMes, status, pedidosPorVeiculo: pvData });
-        createValoresPie('chartValores', status);
-        initPlacaAutocomplete();
+      setTimeout(() => {
+        const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+        const mesKeys = [];
+        const hoje = new Date();
+        if (dias > 0) {
+          const inicio = new Date();
+          inicio.setDate(inicio.getDate() - dias);
+          const cur = new Date(inicio.getFullYear(), inicio.getMonth(), 1);
+          while (cur <= hoje) {
+            mesKeys.push(cur.getFullYear() + '-' + String(cur.getMonth() + 1).padStart(2, '0'));
+            cur.setMonth(cur.getMonth() + 1);
+          }
+        } else {
+          for (let m = 0; m < 12; m++) {
+            mesKeys.push(hoje.getFullYear() + '-' + String(m + 1).padStart(2, '0'));
+          }
+        }
+        const byMes = {};
+        (valoresMes || []).forEach(r => { byMes[r.mes] = r; });
+        const labels = mesKeys.map(k => `${MESES[parseInt(k.slice(5), 10) - 1]}/${k.slice(2, 4)}`);
+        const aprovados = mesKeys.map(k => parseFloat((byMes[k] || {}).valor_aprovado) || 0);
+        const pendentes = mesKeys.map(k => parseFloat((byMes[k] || {}).valor_pendente) || 0);
+        const totalPedidos = mesKeys.map(k => parseInt((byMes[k] || {}).total_pedidos, 10) || 0);
+        createComboChart('chartValoresMes', labels, aprovados, pendentes, totalPedidos);
+
+        const sLabels = (pedidosSetor || []).map(r => r.setor || '-');
+        const sPedidos = (pedidosSetor || []).map(r => r.total || 0);
+        const sValores = (pedidosSetor || []).map(r => parseFloat(r.valor) || 0);
+        createPedidosValoresLinha('chartSetorLinha', sLabels, sPedidos, sValores);
       }, 50);
     }
   } catch (err) {
@@ -1308,11 +1465,12 @@ async function renderOrdersPage(url, pg, state) {
       </div>
       <div class="card"><div class="table-responsive">
         ${!data.data?.length ? '<div class="empty-state"><i class="bi bi-clipboard-check"></i><p>Nenhum pedido encontrado</p></div>' : `
-        <table class="table table-hover"><thead><tr><th>Número</th><th>Veículo</th><th class="d-none d-md-table-cell">Solicitante</th><th class="d-none d-sm-table-cell">Data</th>${isOficinaOrd ? '' : '<th class="d-none d-sm-table-cell">Valor</th>'}<th>Status</th><th class="text-end">Ações</th></tr></thead>
+        <table class="table table-hover"><thead><tr><th>Número</th><th>Veículo</th><th class="d-none d-md-table-cell">Solicitante</th><th class="d-none d-sm-table-cell">Data</th>${isOficinaOrd ? '' : '<th class="d-none d-sm-table-cell">Valor</th>'}<th>Status</th><th class="d-none d-lg-table-cell">Tempo</th><th class="text-end">Ações</th></tr></thead>
         <tbody>${data.data.map(o => `<tr${renderOrderRowClass(o)}>
           <td>${renderOrderNumero(o)}</td><td>${o.placa || '-'}</td><td class="d-none d-md-table-cell">${o.usuario_nome || '-'}</td>
           <td class="d-none d-sm-table-cell">${fmtDate(o.data_pedido)}</td>${isOficinaOrd ? '' : `<td class="d-none d-sm-table-cell">${fmtCurrency(o.valor_total)}</td>`}
           <td>${statusBadge(o.status)}</td>
+          <td class="d-none d-lg-table-cell">${renderTempoCell(o)}</td>
            <td class="text-end"><div class="table-actions justify-content-end">
             <button class="btn btn-outline-info" onclick="viewOrder(${o.id})"><i class="bi bi-eye"></i></button>
             ${(o.status === 'pendente' || o.status === 'novo_orcamento') && user.perfil === 'logistica' ? `<button class="btn btn-outline-primary" onclick="openOrder(${o.id})"><i class="bi bi-pencil"></i></button>` : ''}
@@ -1380,11 +1538,12 @@ function createOrdersPage(statusFilter, label) {
         </div>
         <div class="card"><div class="table-responsive">
           ${!data.data?.length ? '<div class="empty-state"><i class="bi bi-clipboard-check"></i><p>Nenhum pedido encontrado</p></div>' : `
-          <table class="table table-hover"><thead><tr><th>Número</th><th>Veículo</th><th class="d-none d-md-table-cell">Solicitante</th><th class="d-none d-sm-table-cell">Data</th>${isOficinaOrd ? '' : '<th class="d-none d-sm-table-cell">Valor</th>'}<th>Status</th><th class="text-end">Ações</th></tr></thead>
+          <table class="table table-hover"><thead><tr><th>Número</th><th>Veículo</th><th class="d-none d-md-table-cell">Solicitante</th><th class="d-none d-sm-table-cell">Data</th>${isOficinaOrd ? '' : '<th class="d-none d-sm-table-cell">Valor</th>'}<th>Status</th><th class="d-none d-lg-table-cell">Tempo</th><th class="text-end">Ações</th></tr></thead>
           <tbody>${data.data.map(o => `<tr${renderOrderRowClass(o)}>
             <td>${renderOrderNumero(o)}</td><td>${o.placa || '-'}</td><td class="d-none d-md-table-cell">${o.usuario_nome || '-'}</td>
             <td class="d-none d-sm-table-cell">${fmtDate(o.data_pedido)}</td>${isOficinaOrd ? '' : `<td class="d-none d-sm-table-cell">${fmtCurrency(o.valor_total)}</td>`}
             <td>${statusBadge(o.status)}</td>
+            <td class="d-none d-lg-table-cell">${renderTempoCell(o)}</td>
              <td class="text-end"><div class="table-actions justify-content-end">
               <button class="btn btn-outline-info" onclick="viewOrder(${o.id})"><i class="bi bi-eye"></i></button>
                ${o.status === 'pendente' && user.perfil === 'logistica' ? `<button class="btn btn-outline-primary" onclick="openOrder(${o.id})"><i class="bi bi-pencil"></i></button>` : ''}
@@ -1446,12 +1605,13 @@ function createEntregaPage(entregaFilter, label) {
         </div>
         <div class="card"><div class="table-responsive">
           ${!data.data?.length ? '<div class="empty-state"><i class="bi bi-clipboard-check"></i><p>Nenhum pedido encontrado</p></div>' : `
-          <table class="table table-hover"><thead><tr><th>Número</th><th>Veículo</th><th class="d-none d-md-table-cell">Solicitante</th><th class="d-none d-sm-table-cell">Data</th>${isOficinaOrd ? '' : '<th class="d-none d-sm-table-cell">Valor</th>'}<th>Status</th><th>Entrega</th><th class="text-end">Ações</th></tr></thead>
+          <table class="table table-hover"><thead><tr><th>Número</th><th>Veículo</th><th class="d-none d-md-table-cell">Solicitante</th><th class="d-none d-sm-table-cell">Data</th>${isOficinaOrd ? '' : '<th class="d-none d-sm-table-cell">Valor</th>'}<th>Status</th><th>Entrega</th><th class="d-none d-lg-table-cell">Tempo</th><th class="text-end">Ações</th></tr></thead>
           <tbody>${data.data.map(o => `<tr${renderOrderRowClass(o)}>
             <td>${renderOrderNumero(o)}</td><td>${o.placa || '-'}</td><td class="d-none d-md-table-cell">${o.usuario_nome || '-'}</td>
             <td class="d-none d-sm-table-cell">${fmtDate(o.data_pedido)}</td>${isOficinaOrd ? '' : `<td class="d-none d-sm-table-cell">${fmtCurrency(o.valor_total)}</td>`}
             <td>${statusBadge(o.status)}</td>
             <td>${entregaBadge(o.status_entrega)}</td>
+            <td class="d-none d-lg-table-cell">${renderTempoCell(o)}</td>
              <td class="text-end"><div class="table-actions justify-content-end">
               <button class="btn btn-outline-info" onclick="viewOrder(${o.id})"><i class="bi bi-eye"></i></button>
                ${o.status === 'pendente' && user.perfil === 'logistica' ? `<button class="btn btn-outline-primary" onclick="openOrder(${o.id})"><i class="bi bi-pencil"></i></button>` : ''}
@@ -1468,6 +1628,7 @@ function createEntregaPage(entregaFilter, label) {
 createOrdersPage('pendente', 'Pedidos Pendentes');
 createOrdersPage('aprovado', 'Pedidos Aprovados');
 createOrdersPage('aguardando_aprovacao', 'Pedidos Aguardando Aprovação');
+createOrdersPage('comprado', 'Pedidos Comprados');
 
 // Páginas de entrega
 createEntregaPage('chegou', 'Pedidos Entregues');
@@ -1521,11 +1682,12 @@ function createUrgentesPage(label) {
         </div>
         <div class="card"><div class="table-responsive">
           ${!data.data?.length ? '<div class="empty-state"><i class="bi bi-alarm"></i><p>Nenhum pedido urgente</p></div>' : `
-          <table class="table table-hover"><thead><tr><th>Número</th><th>Veículo</th><th class="d-none d-md-table-cell">Solicitante</th><th class="d-none d-sm-table-cell">Data</th><th class="d-none d-sm-table-cell">Sem resposta</th>${isOficinaOrd ? '' : '<th class="d-none d-sm-table-cell">Valor</th>'}<th>Status</th><th class="text-end">Ações</th></tr></thead>
+          <table class="table table-hover"><thead><tr><th>Número</th><th>Veículo</th><th class="d-none d-md-table-cell">Solicitante</th><th class="d-none d-sm-table-cell">Data</th><th class="d-none d-sm-table-cell">Sem resposta</th>${isOficinaOrd ? '' : '<th class="d-none d-sm-table-cell">Valor</th>'}<th>Status</th><th class="d-none d-lg-table-cell">Tempo</th><th class="text-end">Ações</th></tr></thead>
           <tbody>${data.data.map(o => `<tr${renderOrderRowClass(o)}>
             <td>${renderOrderNumero(o)}</td><td>${o.placa || '-'}</td><td class="d-none d-md-table-cell">${o.usuario_nome || '-'}</td>
             <td class="d-none d-sm-table-cell">${fmtDate(o.data_pedido)}</td><td class="d-none d-sm-table-cell text-danger">${o.horas_sem_resposta || 0}h</td>${isOficinaOrd ? '' : `<td class="d-none d-sm-table-cell">${fmtCurrency(o.valor_total)}</td>`}
             <td>${statusBadge(o.status)}</td>
+            <td class="d-none d-lg-table-cell">${renderTempoCell(o)}</td>
              <td class="text-end"><div class="table-actions justify-content-end">
               <button class="btn btn-outline-info" onclick="viewOrder(${o.id})"><i class="bi bi-eye"></i></button>
                ${o.status === 'pendente' && user.perfil === 'logistica' ? `<button class="btn btn-outline-primary" onclick="openOrder(${o.id})"><i class="bi bi-pencil"></i></button>` : ''}
@@ -1545,6 +1707,7 @@ async function viewOrder(id) {
     const o = await API.get(`/orders/${id}`);
     const fotos = o.fotos || [];
     const itens = o.itens || [];
+    const historico = o.historico || [];
 
     const timelineFlow = ['pendente', 'aprovado', 'comprado', 'concluido'];
     const timelineSteps = ['Solicitado', 'Aprovado', 'Comprado', 'Recebido', 'Finalizado'];
@@ -1722,7 +1885,21 @@ async function viewOrder(id) {
     mHtml += '        <div class="pm-section-title"><i data-lucide="history"></i> Hist\u00f3rico</div>';
     mHtml += '        <div class="pm-card">';
     mHtml += '          <div class="pm-section-title" style="margin-bottom:0.75rem;text-transform:none;font-size:0.82rem;"><i data-lucide="clock"></i> Hist\u00f3rico de Altera\u00e7\u00f5es</div>';
-    mHtml += '          <div style="font-size:0.85rem;color:#64748b;margin-bottom:1.5rem;">Nenhuma altera\u00e7\u00e3o registrada.</div>';
+    if (historico.length) {
+      mHtml += '          <div class="pm-history">';
+      for (var h = 0; h < historico.length; h++) {
+        var hh = historico[h];
+        mHtml += '            <div class="pm-history-item">';
+        mHtml += '              <div class="pm-history-time">' + fmtDateTime(hh.created_at) + '</div>';
+        mHtml += '              <div class="pm-history-status">' + renderHistoricoBadge(hh.status) + '</div>';
+        mHtml += '              <div class="pm-history-desc">' + escapeHtml(hh.descricao || '') + '</div>';
+        mHtml += '              <div class="pm-history-user">' + escapeHtml(hh.usuario_nome || 'Sistema') + '</div>';
+        mHtml += '            </div>';
+      }
+      mHtml += '          </div>';
+    } else {
+      mHtml += '          <div style="font-size:0.85rem;color:#64748b;margin-bottom:1.5rem;">Nenhuma altera\u00e7\u00e3o registrada.</div>';
+    }
     mHtml += '          <div class="pm-section-title" style="margin-bottom:0.75rem;text-transform:none;font-size:0.82rem;"><i data-lucide="bar-chart-3"></i> Fluxo do Pedido</div>';
     mHtml += '          <div class="pm-timeline">';
     for (var t = 0; t < timelineSteps.length; t++) {
