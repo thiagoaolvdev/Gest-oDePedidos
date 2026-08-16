@@ -28,10 +28,15 @@ const app = express();
 
 const isProduction = process.env.NODE_ENV === 'production';
 const corsOrigin = process.env.CORS_ORIGIN;
+const allowedOrigins = (corsOrigin || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
+app.disable('x-powered-by');
 app.set('trust proxy', process.env.TRUST_PROXY || (isProduction ? 1 : false));
 
-if (isProduction && (!corsOrigin || !String(corsOrigin).trim())) {
+if (isProduction && allowedOrigins.length === 0) {
   throw new Error('Variável obrigatória ausente em produção: CORS_ORIGIN');
 }
 
@@ -50,7 +55,25 @@ app.use(helmet({
   }
 }));
 app.use(cors({
-  origin: corsOrigin || (process.env.NODE_ENV === 'development' ? '*' : false)
+  origin: (origin, callback) => {
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.length === 0 && process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+
+    const isAllowed = allowedOrigins.includes(origin);
+    if (isAllowed) {
+      return callback(null, true);
+    }
+
+    return callback(new Error('Origem não permitida pelo CORS'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -60,7 +83,7 @@ const limiter = rateLimit({
   max: process.env.RATE_LIMIT_MAX || 100,
   message: { error: 'Muitas requisições. Tente novamente mais tarde.' }
 });
-app.use('/api/', limiter);
+app.use('/api', limiter);
 
 if (process.env.LIVE_RELOAD !== 'false') {
   const liveReload = require('./src/utils/liveReload');
@@ -88,6 +111,9 @@ app.use('/api', ordemCompraRoutes);
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
+app.get('/login', (req, res) => {
+  res.redirect('/');
+});
 app.get('/login.html', (req, res) => {
   res.redirect('/');
 });
@@ -105,6 +131,9 @@ app.get('/app', (req, res) => {
     }
   }
   res.redirect('/');
+});
+app.get('/app/*', (req, res) => {
+  res.redirect('/app');
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
