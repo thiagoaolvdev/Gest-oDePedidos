@@ -71,7 +71,7 @@ body {
 }
 
 .sidebar-header i { font-size: 1.4rem; }
-.sidebar-brand { white-space: nowrap; }
+.sidebar-logo { height: 48px; width: auto; max-width: 100%; object-fit: contain; }
 
 .sidebar-nav {
   flex: 1;
@@ -645,6 +645,11 @@ tr.order-urgent td:first-child {
   .sidebar-backdrop {
     position: fixed; inset: 0; background: rgba(0,0,0,.5);
     z-index: 1039;
+    opacity: 0;
+    transition: opacity .2s ease;
+  }
+  .sidebar-backdrop.show {
+    opacity: 1;
   }
 }
 

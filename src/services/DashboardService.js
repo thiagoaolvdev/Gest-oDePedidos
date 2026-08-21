@@ -347,10 +347,10 @@ class DashboardService {
     for (const pedido of pedidos) {
       const [itens] = await db.execute(`
         SELECT pi.id, pi.quantidade, pi.valor_unitario, pi.valor_total,
-          pe.nome as peca_nome, pe.codigo_interno,
+          COALESCE(pe.nome, pi.descricao) as peca_nome, pe.codigo_interno,
           f.razao_social as fornecedor
         FROM pedido_itens pi
-        INNER JOIN pecas pe ON pe.id = pi.peca_id
+        LEFT JOIN pecas pe ON pe.id = pi.peca_id
         LEFT JOIN fornecedores f ON f.id = pi.fornecedor_id
         WHERE pi.pedido_id = ?
       `, [pedido.id]);
@@ -370,6 +370,138 @@ class DashboardService {
       ORDER BY v.placa
       LIMIT 10
     `, [`${q}%`]);
+    return rows;
+  }
+
+  async getGastosVeiculosKpis(dias) {
+    const filter = periodoFilter(dias, 'p.');
+    const [totais] = await db.execute(`
+      SELECT
+        COUNT(DISTINCT p.veiculo_id) as veiculos_com_pedido,
+        COALESCE(SUM(CASE WHEN p.status IN ('aprovado','comprado','concluido') THEN p.valor_total END), 0) as total_gastos,
+        COUNT(DISTINCT CASE WHEN p.status IN ('aprovado','comprado','concluido') THEN p.veiculo_id END) as veiculos_ativos
+      FROM pedidos p WHERE 1=1 ${filter}
+    `);
+    const [media] = await db.execute(`
+      SELECT COALESCE(AVG(sub.total), 0) as media
+      FROM (
+        SELECT p.veiculo_id, SUM(CASE WHEN p.status IN ('aprovado','comprado','concluido') THEN p.valor_total ELSE 0 END) as total
+        FROM pedidos p WHERE 1=1 ${filter}
+        GROUP BY p.veiculo_id
+      ) sub WHERE sub.total > 0
+    `);
+    const [maiorGasto] = await db.execute(`
+      SELECT v.placa, mo.nome as modelo, ma.nome as marca,
+        COALESCE(SUM(CASE WHEN p.status IN ('aprovado','comprado','concluido') THEN p.valor_total END), 0) as valor
+      FROM pedidos p
+      LEFT JOIN veiculos v ON v.id = p.veiculo_id
+      LEFT JOIN modelos mo ON mo.id = v.modelo_id
+      LEFT JOIN marcas ma ON ma.id = mo.marca_id
+      WHERE 1=1 ${filter}
+      GROUP BY p.veiculo_id ORDER BY valor DESC LIMIT 1
+    `);
+    const [qtdPedidos] = await db.execute(`
+      SELECT COUNT(*) as total FROM pedidos p WHERE 1=1 ${filter}
+    `);
+    return {
+      veiculos_com_pedido: totais[0].veiculos_com_pedido,
+      total_gastos: totais[0].total_gastos,
+      veiculos_ativos: totais[0].veiculos_ativos,
+      media_por_veiculo: media[0].media,
+      maior_gasto: maiorGasto[0] || null,
+      total_pedidos: qtdPedidos[0].total
+    };
+  }
+
+  async getGastosPorVeiculoDetalhado(dias, limit = 15) {
+    const filter = periodoFilter(dias, 'p.');
+    const [rows] = await db.query(`
+      SELECT v.placa, mo.nome as modelo, ma.nome as marca,
+        COUNT(p.id) as total_pedidos,
+        COALESCE(SUM(CASE WHEN p.status IN ('aprovado','comprado','concluido') THEN p.valor_total END), 0) as valor,
+        COALESCE(SUM(CASE WHEN p.status = 'pendente' THEN p.valor_total END), 0) as valor_pendente,
+        COALESCE(SUM(CASE WHEN p.status IN ('aprovado','comprado','concluido') THEN p.valor_total ELSE 0 END), 0) as valor_aprovado
+      FROM pedidos p
+      LEFT JOIN veiculos v ON v.id = p.veiculo_id
+      LEFT JOIN modelos mo ON mo.id = v.modelo_id
+      LEFT JOIN marcas ma ON ma.id = mo.marca_id
+      WHERE p.veiculo_id IS NOT NULL ${filter}
+      GROUP BY p.veiculo_id
+      HAVING valor > 0
+      ORDER BY valor DESC
+      LIMIT ?
+    `, [Number(limit) || 15]);
+    return rows;
+  }
+
+  async getGastosVeiculosMensal(dias, limitVeiculos = 6) {
+    const filter = periodoFilter(dias, 'p.');
+    const [topVeiculos] = await db.query(`
+      SELECT p.veiculo_id
+      FROM pedidos p
+      WHERE p.veiculo_id IS NOT NULL AND p.status IN ('aprovado','comprado','concluido') ${filter}
+      GROUP BY p.veiculo_id
+      ORDER BY SUM(p.valor_total) DESC
+      LIMIT ?
+    `, [Number(limitVeiculos) || 6]);
+
+    if (!topVeiculos.length) return { labels: [], datasets: [] };
+
+    const veiculoIds = topVeiculos.map(v => v.veiculo_id);
+    const placeholders = veiculoIds.map(() => '?').join(',');
+
+    const [veiculosInfo] = await db.query(`
+      SELECT v.id, v.placa, mo.nome as modelo
+      FROM veiculos v
+      LEFT JOIN modelos mo ON mo.id = v.modelo_id
+      WHERE v.id IN (${placeholders})
+    `, veiculoIds);
+
+    const infoMap = {};
+    veiculosInfo.forEach(v => { infoMap[v.id] = v; });
+
+    const [rows] = await db.query(`
+      SELECT DATE_FORMAT(p.data_pedido, '%Y-%m') as mes, p.veiculo_id,
+        COALESCE(SUM(CASE WHEN p.status IN ('aprovado','comprado','concluido') THEN p.valor_total END), 0) as valor
+      FROM pedidos p
+      WHERE p.veiculo_id IN (${placeholders}) ${filter}
+      GROUP BY mes, p.veiculo_id
+      ORDER BY mes ASC
+    `, veiculoIds);
+
+    const mesSet = [...new Set(rows.map(r => r.mes))].sort();
+    const byVeicMes = {};
+    rows.forEach(r => {
+      if (!byVeicMes[r.veiculo_id]) byVeicMes[r.veiculo_id] = {};
+      byVeicMes[r.veiculo_id][r.mes] = r.valor;
+    });
+
+    const colors = ['#0B2545', '#F9A826', '#2ECC71', '#E74C3C', '#3498DB', '#9B59B6'];
+    const datasets = veiculoIds.map((id, i) => {
+      const info = infoMap[id] || {};
+      return {
+        label: `${info.placa || id}`,
+        data: mesSet.map(m => byVeicMes[id]?.[m] || 0),
+        color: colors[i % colors.length]
+      };
+    });
+
+    return { labels: mesSet, datasets };
+  }
+
+  async getGastosVeiculosTopItens(dias, limit = 10) {
+    const filter = periodoFilter(dias, 'p.');
+    const [rows] = await db.query(`
+      SELECT COALESCE(pe.nome, pi.descricao, 'Sem nome') as item, COUNT(pi.id) as total,
+        COALESCE(SUM(pi.valor_total), 0) as valor
+      FROM pedido_itens pi
+      INNER JOIN pedidos p ON p.id = pi.pedido_id
+      LEFT JOIN pecas pe ON pe.id = pi.peca_id
+      WHERE p.status IN ('aprovado','comprado','concluido') ${filter}
+      GROUP BY pe.nome, pi.descricao
+      ORDER BY valor DESC
+      LIMIT ?
+    `, [Number(limit) || 10]);
     return rows;
   }
 }

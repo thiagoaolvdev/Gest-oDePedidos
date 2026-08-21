@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
   numero VARCHAR(20) NOT NULL UNIQUE,
   veiculo_id INT NOT NULL,
   usuario_id INT NOT NULL,
+  destinatario_id INT,
   mecanico_id INT,
   mecanico_nome VARCHAR(150),
   aprovado_por INT,
@@ -100,10 +101,12 @@ CREATE TABLE IF NOT EXISTS pedidos (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_pedido_veiculo FOREIGN KEY(veiculo_id) REFERENCES veiculos(id),
   CONSTRAINT fk_pedido_usuario FOREIGN KEY(usuario_id) REFERENCES usuarios(id),
+  CONSTRAINT fk_pedido_destinatario FOREIGN KEY(destinatario_id) REFERENCES usuarios(id) ON DELETE SET NULL,
   CONSTRAINT fk_pedido_mecanico FOREIGN KEY(mecanico_id) REFERENCES usuarios(id) ON DELETE SET NULL,
   CONSTRAINT fk_pedido_aprovador FOREIGN KEY(aprovado_por) REFERENCES usuarios(id) ON DELETE SET NULL,
   INDEX idx_pedidos_numero(numero),
-  INDEX idx_pedidos_status(status)
+  INDEX idx_pedidos_status(status),
+  INDEX idx_pedidos_destinatario(destinatario_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS pedido_itens (
@@ -115,18 +118,22 @@ CREATE TABLE IF NOT EXISTS pedido_itens (
   quantidade INT DEFAULT 1,
   valor_unitario DECIMAL(10,2) DEFAULT 0,
   valor_total DECIMAL(12,2) DEFAULT 0,
+  ordem_compra_id INT,
   CONSTRAINT fk_pi_pedido FOREIGN KEY(pedido_id) REFERENCES pedidos(id) ON DELETE CASCADE,
   CONSTRAINT fk_pi_peca FOREIGN KEY(peca_id) REFERENCES pecas(id),
   CONSTRAINT fk_pi_fornecedor FOREIGN KEY(fornecedor_id) REFERENCES fornecedores(id),
-  INDEX idx_pi_pedido(pedido_id)
+  CONSTRAINT fk_pi_oc FOREIGN KEY(ordem_compra_id) REFERENCES ordens_compra(id) ON DELETE CASCADE,
+  INDEX idx_pi_pedido(pedido_id),
+  INDEX idx_pi_oc(ordem_compra_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS ordens_compra (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  pedido_id INT NOT NULL UNIQUE,
+  pedido_id INT NOT NULL,
+  pedido_item_id INT NOT NULL,
   fornecedor_id INT,
-  fornecedor_nome VARCHAR(150) NOT NULL,
-  fornecedor_endereco VARCHAR(255) NOT NULL,
+  fornecedor_nome VARCHAR(150),
+  fornecedor_endereco VARCHAR(255),
   fornecedor_telefone VARCHAR(20),
   numero VARCHAR(20) UNIQUE,
   tipo ENUM('contrato','concorrencia','simples') NOT NULL,
@@ -148,8 +155,10 @@ CREATE TABLE IF NOT EXISTS ordens_compra (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_oc_pedido FOREIGN KEY(pedido_id) REFERENCES pedidos(id) ON DELETE CASCADE,
+  CONSTRAINT fk_oc_pedido_item FOREIGN KEY(pedido_item_id) REFERENCES pedido_itens(id),
   CONSTRAINT fk_oc_fornecedor FOREIGN KEY(fornecedor_id) REFERENCES fornecedores(id),
   CONSTRAINT fk_oc_usuario FOREIGN KEY(criado_por) REFERENCES usuarios(id),
+  UNIQUE KEY uq_oc_pedido_item (pedido_item_id),
   INDEX idx_oc_pedido(pedido_id),
   INDEX idx_oc_fornecedor(fornecedor_id),
   INDEX idx_oc_numero(numero)

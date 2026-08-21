@@ -29,7 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const loginBtnSpinner = document.getElementById('loginBtnSpinner');
   const loginError = document.getElementById('loginError');
 
-  const remembered = localStorage.getItem('chemarauto_remember_nick');
+  const remembered = localStorage.getItem('empresa_remember_nick');
   if (remembered) {
     nickInput.value = remembered;
     rememberMe.checked = true;

@@ -16,24 +16,28 @@ class OrderRepository {
       SELECT p.*, v.placa, v.ano as veiculo_ano,
         mo.nome as veiculo_modelo, ma.nome as veiculo_marca,
         u.nome as usuario_nome, u.nick as usuario_nick, u.perfil as usuario_perfil,
+        d.nome as destinatario_nome, d.perfil as destinatario_perfil,
         a.nome as aprovador_nome,
-        COALESCE(m.nome, p.mecanico_nome) as mecanico_nome,
-        oc.id as ordem_compra_id,
-        oc.numero as ordem_compra_numero,
-        oc.tipo as ordem_compra_tipo,
-        oc.data_emissao as ordem_compra_data_emissao,
-        oc.prazo_entrega as ordem_compra_prazo_entrega
+        COALESCE(m.nome, p.mecanico_nome) as mecanico_nome
       FROM pedidos p
       LEFT JOIN veiculos v ON v.id = p.veiculo_id
       LEFT JOIN modelos mo ON mo.id = v.modelo_id
       LEFT JOIN marcas ma ON ma.id = mo.marca_id
       LEFT JOIN usuarios u ON u.id = p.usuario_id
+      LEFT JOIN usuarios d ON d.id = p.destinatario_id
       LEFT JOIN usuarios a ON a.id = p.aprovado_por
       LEFT JOIN usuarios m ON m.id = p.mecanico_id
-      LEFT JOIN ordens_compra oc ON oc.pedido_id = p.id
       WHERE p.id = ?
     `, [id]);
     if (!rows[0]) return null;
+
+    const [ocs] = await db.query(`
+      SELECT id, numero, fornecedor_nome, subtotal, total, tipo, data_emissao, prazo_entrega
+      FROM ordens_compra
+      WHERE pedido_id = ?
+      ORDER BY id ASC
+    `, [id]);
+
     const [itens] = await db.query(`
       SELECT pi.*, pe.nome as peca_nome, pe.codigo_interno as peca_codigo,
         COALESCE(pi.descricao, pe.nome, pe.codigo_interno) as item_nome,
@@ -54,10 +58,21 @@ class OrderRepository {
       WHERE h.pedido_id = ?
       ORDER BY h.created_at ASC
     `, [id]);
-    return { ...rows[0], itens, fotos, historico };
+
+    const result = { ...rows[0], itens, fotos, historico, ordens_compra: ocs };
+
+    if (ocs.length > 0) {
+      result.ordem_compra_id = ocs[0].id;
+      result.ordem_compra_numero = ocs[0].numero;
+      result.ordem_compra_tipo = ocs[0].tipo;
+      result.ordem_compra_data_emissao = ocs[0].data_emissao;
+      result.ordem_compra_prazo_entrega = ocs[0].prazo_entrega;
+    }
+
+    return result;
   }
 
-  async findAllWithFilters(filters, page, limit) {
+  async findAllWithFilters(filters, page, limit, requestingUserId = null, requestingPerfil = null) {
     const offset = (page - 1) * limit;
     let where = ['1=1'];
     let params = [];
@@ -75,6 +90,10 @@ class OrderRepository {
       where.push('(p.numero LIKE ? OR v.placa LIKE ?)');
       params.push(`%${filters.search}%`, `%${filters.search}%`);
     }
+    if (requestingUserId) {
+      where.push('(p.destinatario_id IS NULL OR p.destinatario_id = ? OR p.usuario_id = ?)');
+      params.push(requestingUserId, requestingUserId);
+    }
     const urgenteCond = `(p.status IN ('pendente', 'em_compra', 'novo_orcamento')
       AND p.ultima_atualizacao < DATE_SUB(NOW(), INTERVAL 48 HOUR))`;
     const temFiltroData = !!(filters.data_inicio || filters.data_fim);
@@ -89,6 +108,7 @@ class OrderRepository {
     const [rows] = await db.query(`
       SELECT p.*, v.placa, mo.nome as veiculo_modelo, ma.nome as veiculo_marca,
         u.nome as usuario_nome,
+        d.nome as destinatario_nome,
         COALESCE(mec.nome, p.mecanico_nome) as mecanico_nome,
         (p.status IN ('pendente', 'em_compra', 'novo_orcamento')
           AND p.ultima_atualizacao < DATE_SUB(NOW(), INTERVAL 48 HOUR)) as urgente,
@@ -98,6 +118,7 @@ class OrderRepository {
       LEFT JOIN modelos mo ON mo.id = v.modelo_id
       LEFT JOIN marcas ma ON ma.id = mo.marca_id
       LEFT JOIN usuarios u ON u.id = p.usuario_id
+      LEFT JOIN usuarios d ON d.id = p.destinatario_id
       LEFT JOIN usuarios mec ON mec.id = p.mecanico_id
       WHERE ${whereStr}
       ORDER BY urgente DESC, p.ultima_atualizacao DESC, p.created_at DESC
@@ -139,8 +160,8 @@ class OrderRepository {
 
   async create(data) {
     const [result] = await db.query(
-      'INSERT INTO pedidos (numero, veiculo_id, usuario_id, mecanico_id, mecanico_nome, status, observacoes, valor_total, previsao_entrega) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [data.numero, data.veiculo_id, data.usuario_id, data.mecanico_id || null, data.mecanico_nome || null, data.status || 'pendente', data.observacoes || null, data.valor_total || 0, data.previsao_entrega || null]
+      'INSERT INTO pedidos (numero, veiculo_id, usuario_id, destinatario_id, mecanico_id, mecanico_nome, status, observacoes, valor_total, previsao_entrega) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [data.numero, data.veiculo_id, data.usuario_id, data.destinatario_id || null, data.mecanico_id || null, data.mecanico_nome || null, data.status || 'pendente', data.observacoes || null, data.valor_total || 0, data.previsao_entrega || null]
     );
     return { id: result.insertId, ...data };
   }

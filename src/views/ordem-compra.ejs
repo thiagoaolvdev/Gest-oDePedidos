@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Autorização de Compra <%= ordem.numero || '' %></title>
+  <title>Autorização de Compra</title>
   <style>
     :root {
       --ink: #1f2937;
@@ -33,6 +33,10 @@
       position: relative;
       display: flex;
       flex-direction: column;
+      page-break-after: always;
+    }
+    .sheet:last-child {
+      page-break-after: auto;
     }
     .sheet-body {
       flex: 1;
@@ -63,12 +67,6 @@
       font-size: 18px;
       letter-spacing: 1px;
     }
-    .brand-name {
-      font-size: 18px;
-      font-weight: 800;
-      letter-spacing: .06em;
-      color: var(--brand);
-    }
     .brand-sub {
       color: var(--muted);
       font-size: 11px;
@@ -88,7 +86,7 @@
       font-size: 15px;
       font-weight: 700;
     }
-    .doc-origin {
+    .doc-meta {
       margin-top: 4px;
       font-size: 10px;
       color: var(--muted);
@@ -193,6 +191,7 @@
       display: block;
       image-rendering: auto;
     }
+    .brand-mark-img { height: 64px; width: auto; object-fit: contain; }
     .footer {
       margin-top: 12px;
       border-top: 1px solid var(--line);
@@ -203,19 +202,6 @@
       justify-content: space-between;
       gap: 12px;
     }
-    .approval-row {
-      margin-top: 10px;
-      display: flex;
-      justify-content: flex-end;
-      align-items: center;
-      gap: 8px;
-      font-size: 10px;
-      color: var(--muted);
-    }
-    .approval-row strong {
-      font-weight: 700;
-      color: var(--ink);
-    }
     .muted { color: var(--muted); }
     @media print {
       body { background: #fff; }
@@ -225,22 +211,40 @@
   </style>
 </head>
 <body>
+  <%
+    const fmt = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+    const fmtDate = (d) => {
+      if (!d) return '';
+      const dt = new Date(d + 'T00:00:00');
+      return dt.toLocaleDateString('pt-BR');
+    };
+  %>
+
+  <% ordens.forEach((ordem, ordemIdx) => { %>
+    <%
+      const itens = ordem.itens || [];
+      const totalItens = itens.length;
+    %>
   <div class="sheet">
-    <% const orderOrigins = [...new Set((ordem.itens || []).map((item) => String(item.fornecedor_origem || '').trim()).filter(Boolean))].join(', '); %>
     <div class="header">
       <div class="brand">
-        <div class="brand-mark">C</div>
+        <img src="/img/logo.png" alt="Logo" class="brand-mark-img">
         <div>
-          <div class="brand-name">CHEMARAUTO</div>
           <div class="brand-sub">Autorização de Compra</div>
         </div>
       </div>
       <div class="title-block">
         <div class="doc-title">AUTORIZAÇÃO DE COMPRA</div>
         <div class="doc-number">Nº <%= ordem.numero || '________' %></div>
-        <% if (orderOrigins) { %>
-          <div class="doc-origin">Origem: <%= orderOrigins %></div>
-        <% } %>
+        <div class="doc-meta">
+          Pedido nº <%= ordem.pedido_numero || '___' %>
+          <% if (ordens.length > 1) { %>
+            &nbsp;·&nbsp; <%= ordemIdx + 1 %> de <%= ordens.length %>
+          <% } %>
+          <% if (ordem.data_emissao) { %>
+            &nbsp;·&nbsp; <%= fmtDate(ordem.data_emissao) %>
+          <% } %>
+        </div>
       </div>
     </div>
 
@@ -259,10 +263,10 @@
           <div class="label">Endereço</div>
           <div class="field"><span class="value"><%= ordem.fornecedor_endereco || '' %></span></div>
         </div>
-        <% if (orderOrigins) { %>
+        <% if (itens[0] && itens[0].fornecedor_origem) { %>
           <div style="grid-column: 1 / -1;">
             <div class="label">Origem</div>
-            <div class="field"><span class="value"><%= orderOrigins %></span></div>
+            <div class="field"><span class="value"><%= itens[0].fornecedor_origem %></span></div>
           </div>
         <% } %>
       </div>
@@ -282,11 +286,11 @@
           </div>
           <div>
             <div class="label">Prazo de entrega</div>
-            <div class="field"><span class="value"><%= ordem.prazo_entrega ? new Date(ordem.prazo_entrega).toLocaleDateString('pt-BR') : '' %></span></div>
+            <div class="field"><span class="value"><%= fmtDate(ordem.prazo_entrega) %></span></div>
           </div>
           <div>
             <div class="label">Data de emissão</div>
-            <div class="field"><span class="value"><%= ordem.data_emissao ? new Date(ordem.data_emissao).toLocaleDateString('pt-BR') : '' %></span></div>
+            <div class="field"><span class="value"><%= fmtDate(ordem.data_emissao) %></span></div>
           </div>
         </div>
         <div style="margin-top: 10px;">
@@ -298,7 +302,7 @@
 
     <div class="sheet-body">
       <div class="section">
-        <div class="section-title">Itens</div>
+        <div class="section-title">Item</div>
         <div class="section-body">
           <table>
             <thead>
@@ -313,64 +317,84 @@
               </tr>
             </thead>
             <tbody>
-              <% if (ordem.itens && ordem.itens.length) { %>
-                <% ordem.itens.forEach((item) => { %>
-                  <tr>
-                    <td class="text-center"><%= item.quantidade || '' %></td>
-                    <td class="text-center"><%= item.unidade || '' %></td>
-                    <td><%= item.descricao || '' %></td>
-                    <td class="text-right"><%= new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.valor_unitario || 0) %></td>
-                    <td class="text-right"><%= new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.valor_total || 0) %></td>
-                    <td><%= item.aplicacao || ordem.veiculo_placa || '' %></td>
-                    <td><%= item.fornecedor_origem || '-' %></td>
-                  </tr>
-                <% }) %>
-              <% } else { %>
-                <tr><td colspan="7" class="text-center muted">Sem itens</td></tr>
-              <% } %>
+              <% itens.forEach((item) => { %>
+              <tr>
+                <td class="text-center"><%= item.quantidade || '' %></td>
+                <td class="text-center"><%= item.unidade || 'un' %></td>
+                <td><%= item.descricao || '' %></td>
+                <td class="text-right"><%= fmt(item.valor_unitario) %></td>
+                <td class="text-right"><strong><%= fmt(item.valor_total) %></strong></td>
+                <td><%= item.aplicacao || ordem.veiculo_placa || '' %></td>
+                <td><%= item.fornecedor_origem || '-' %></td>
+              </tr>
+              <% }) %>
             </tbody>
           </table>
         </div>
       </div>
 
-    <div class="section">
-      <div class="section-title">Observações</div>
-      <div class="section-body">
-        <div class="field"><%= ordem.observacoes || '' %></div>
+      <div class="section">
+        <div class="section-title">Observações</div>
+        <div class="section-body">
+          <div class="field"><%= ordem.observacoes || '' %></div>
+        </div>
       </div>
-    </div>
 
-    <div class="section">
-      <div class="section-title">Totais</div>
-      <div class="section-body grid-2">
-        <div><div class="label">Sub Total</div><div class="field"><span class="value"><%= new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(ordem.subtotal || 0) %></span></div></div>
-        <div><div class="label">Total</div><div class="field"><span class="value"><%= new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(ordem.total || 0) %></span></div></div>
+      <div class="section">
+        <div class="section-title">Totais</div>
+        <div class="section-body grid-2">
+          <div><div class="label">Sub Total</div><div class="field"><span class="value"><%= fmt(ordem.subtotal) %></span></div></div>
+          <div><div class="label">Total</div><div class="field"><span class="value"><%= fmt(ordem.total) %></span></div></div>
+        </div>
       </div>
-    </div>
 
-    <div class="signature">
-      <div class="small">
-        <div><strong>Pedido nº:</strong> <%= ordem.pedido_numero || '' %></div>
-        <div><strong>Gerado por:</strong> <%= ordem.criado_por_nome || '' %></div>
+      <div class="signature">
+        <div class="small">
+          <div><strong>Pedido nº:</strong> <%= ordem.pedido_numero || '' %></div>
+          <% if (ordens.length > 1) { %>
+            <div><strong>OC:</strong> <%= ordemIdx + 1 %> de <%= ordens.length %></div>
+          <% } %>
+          <div><strong>Gerado por:</strong> <%= ordem.criado_por_nome || '' %></div>
+        </div>
+        <div class="signature-box">Controllers: ____________________________________</div>
       </div>
-      <div class="signature-box">Controllers: ____________________________________</div>
-    </div>
 
-    <% if (ordem.aprovado_por_perfil === 'diretor') { %>
-      <div class="stamp">
-        <img src="/img/carimbo.png" alt="Carimbo de autorização do diretor">
-      </div>
-    <% } %>
+      <% if (ordem.aprovado_por_perfil === 'diretor') { %>
+        <div class="stamp">
+          <img src="/img/carimbo.png" alt="Carimbo de autorização do diretor">
+        </div>
+      <% } %>
 
-    <div class="footer">
-      <div>
-        Matriz: Rua ... | Filial: Rua ... | Tel: ... | contato@chemarauto.com.br
-      </div>
-      <div>
-        <strong>Chemarauto</strong>
+      <div class="footer">
+        <div>
+          Matriz: Rua ... | Filial: Rua ... | Tel: ... | contato@primetech.com.br
+        </div>
+        <div>
+          <strong>Prime Tech</strong>
+        </div>
       </div>
     </div>
   </div>
+  <% }) %>
+
+  <% if (ordens.length === 0) { %>
+  <div class="sheet">
+    <div class="header">
+      <div class="brand">
+        <img src="/img/logo.png" alt="Logo" class="brand-mark-img">
+        <div>
+          <div class="brand-sub">Autorização de Compra</div>
+        </div>
+      </div>
+      <div class="title-block">
+        <div class="doc-title">AUTORIZAÇÃO DE COMPRA</div>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-body text-center muted">Sem ordens de compra</div>
+    </div>
+  </div>
+  <% } %>
 
   <script>
     window.addEventListener('load', () => {

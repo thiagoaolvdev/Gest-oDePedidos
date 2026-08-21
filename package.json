@@ -20,6 +20,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "ejs": "^3.1.9",
+    "exceljs": "^4.4.0",
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.4",
     "helmet": "^7.1.0",
@@ -28,6 +29,7 @@
     "mysql2": "^3.6.5",
     "node-cron": "^3.0.3",
     "nodemailer": "^6.9.7",
+    "pdfkit": "^0.15.2",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0",
     "xss": "^1.0.15"

@@ -16,26 +16,46 @@ class OrderService {
     this.userRepo = new UserRepository();
   }
 
-  async findAll(filters, page, limit) {
-    return this.repo.findAllWithFilters(filters, page, limit);
+  async findAll(filters, page, limit, requestingUserId = null, requestingPerfil = null) {
+    return this.repo.findAllWithFilters(filters, page, limit, requestingUserId, requestingPerfil);
   }
 
-  async findById(id) {
+  async findById(id, requestingUserId = null, requestingPerfil = null) {
     const order = await this.repo.findFullById(id);
     if (!order) throw { statusCode: 404, message: 'Pedido não encontrado' };
+    if (
+      order.destinatario_id
+      && requestingUserId
+      && Number(order.destinatario_id) !== Number(requestingUserId)
+      && Number(order.usuario_id) !== Number(requestingUserId)
+    ) {
+      throw { statusCode: 403, message: 'Você não tem acesso a este pedido' };
+    }
     return order;
   }
 
-  async create(data, userId, ip) {
+  async create(data, userId, perfil = null, ip) {
     const safeData = sanitizePayload(data, ['observacoes', 'mecanico_nome', 'previsao_entrega']);
     const numero = generateOrderNumber();
     let valorTotal = 0;
+
+    let destinatarioId = null;
+    let destinatarioNome = null;
+    if (perfil === 'logistica' && safeData.destinatario_id) {
+      const destinatario = await this.userRepo.findById(safeData.destinatario_id);
+      if (!destinatario || !destinatario.ativo) {
+        throw { statusCode: 400, message: 'Destinatário inválido ou inativo' };
+      }
+      destinatarioId = destinatario.id;
+      destinatarioNome = destinatario.nome;
+    }
 
     const orderData = {
       numero,
       veiculo_id: safeData.veiculo_id,
       previsao_entrega: safeData.previsao_entrega || null,
       usuario_id: userId,
+      destinatario_id: destinatarioId,
       mecanico_id: safeData.mecanico_id || null,
       mecanico_nome: safeData.mecanico_nome || null,
       status: 'pendente',
@@ -65,6 +85,18 @@ class OrderService {
 
     await this.repo.updateStatus(orderId, status, { valor_total: valorTotal });
     await this._registrarHistorico(orderId, userId, status, 'Pedido criado');
+
+    if (destinatarioId) {
+      await this._registrarHistorico(orderId, userId, status, `Pedido enviado para ${destinatarioNome} confirmar a compra.`);
+      await this.notifRepo.create({
+        usuario_id: destinatarioId,
+        titulo: 'Pedido enviado para confirmação',
+        mensagem: `O pedido ${numero} foi enviado para você confirmar a compra.`,
+        tipo: 'info',
+        pedido_id: orderId
+      });
+    }
+
     await registerAudit({ userId, action: 'create', entity: 'pedidos', entityId: orderId, newValues: { numero, valor_total: valorTotal }, ip });
     logger.info(`Pedido criado: ${numero} - R$ ${valorTotal}`);
 

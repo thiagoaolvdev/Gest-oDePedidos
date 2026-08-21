@@ -170,4 +170,32 @@ const suggestPlacas = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { summary, pedidosPorMes, pedidosPorVeiculo, pedidosPorUsuario, pedidosPorSetor, gastosPorFornecedor, pedidosPorStatus, gastosPorPeriodo, topUsuarios, kpi, kpis, kpisDiretor, valoresPorMes, valoresGastosUsuario, gastosMensais, desempenhoSetores, recentes, rankingSolicitantes, tempoMedioOrcamento, tempoMedioResposta, pedidosRejeitados, pedidosAceitos, pedidosPorPlaca, suggestPlacas };
+const gastosVeiculosKpis = async (req, res, next) => {
+  try {
+    const data = await service.getGastosVeiculosKpis(req.query.dias);
+    res.json(data);
+  } catch (err) { next(err); }
+};
+
+const gastosPorVeiculoDetalhado = async (req, res, next) => {
+  try {
+    const data = await service.getGastosPorVeiculoDetalhado(req.query.dias, req.query.limit);
+    res.json(data);
+  } catch (err) { next(err); }
+};
+
+const gastosVeiculosMensal = async (req, res, next) => {
+  try {
+    const data = await service.getGastosVeiculosMensal(req.query.dias, req.query.limit_veiculos);
+    res.json(data);
+  } catch (err) { next(err); }
+};
+
+const gastosVeiculosTopItens = async (req, res, next) => {
+  try {
+    const data = await service.getGastosVeiculosTopItens(req.query.dias, req.query.limit);
+    res.json(data);
+  } catch (err) { next(err); }
+};
+
+module.exports = { summary, pedidosPorMes, pedidosPorVeiculo, pedidosPorUsuario, pedidosPorSetor, gastosPorFornecedor, pedidosPorStatus, gastosPorPeriodo, topUsuarios, kpi, kpis, kpisDiretor, valoresPorMes, valoresGastosUsuario, gastosMensais, desempenhoSetores, recentes, rankingSolicitantes, tempoMedioOrcamento, tempoMedioResposta, pedidosRejeitados, pedidosAceitos, pedidosPorPlaca, suggestPlacas, gastosVeiculosKpis, gastosPorVeiculoDetalhado, gastosVeiculosMensal, gastosVeiculosTopItens };

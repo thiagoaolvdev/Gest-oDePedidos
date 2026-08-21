@@ -57,22 +57,38 @@ function applyPermissions() {
   show('navFornecedores', false);
   show('sectionAdmin', ['garantia', 'funilaria', 'administrativo', 'diretor'].includes(p));
   show('navUsers', ['administrativo', 'diretor'].includes(p));
-  show('navCategorias', ['garantia', 'funilaria', 'administrativo', 'diretor'].includes(p));
   show('navAudit', ['diretor', 'administrativo'].includes(p));
+}
+
+function openSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  sidebar.classList.add('show');
+  let bd = document.getElementById('sbBackdrop');
+  if (!bd) {
+    bd = document.createElement('div');
+    bd.className = 'sidebar-backdrop';
+    bd.id = 'sbBackdrop';
+    bd.onclick = closeSidebar;
+    document.body.appendChild(bd);
+  }
+  requestAnimationFrame(() => bd.classList.add('show'));
+}
+
+function closeSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  sidebar.classList.remove('show');
+  const bd = document.getElementById('sbBackdrop');
+  if (bd) {
+    bd.classList.remove('show');
+    bd.addEventListener('transitionend', () => bd.remove(), { once: true });
+  }
 }
 
 function initUI() {
   // Sidebar toggle
   document.getElementById('sidebarToggle')?.addEventListener('click', () => {
     const sidebar = document.getElementById('sidebar');
-    sidebar.classList.toggle('show');
-    if (sidebar.classList.contains('show')) {
-      const bd = document.createElement('div');
-      bd.className = 'sidebar-backdrop';
-      bd.id = 'sbBackdrop';
-      bd.onclick = () => sidebar.classList.remove('show');
-      document.body.appendChild(bd);
-    } else document.getElementById('sbBackdrop')?.remove();
+    sidebar.classList.contains('show') ? closeSidebar() : openSidebar();
   });
 
   // Nav items
@@ -80,8 +96,7 @@ function initUI() {
     el.addEventListener('click', (e) => {
       e.preventDefault();
       navigate(el.dataset.page);
-      document.getElementById('sidebar')?.classList.remove('show');
-      document.getElementById('sbBackdrop')?.remove();
+      closeSidebar();
     });
   });
 
@@ -132,7 +147,7 @@ function navigate(page) {
     orders: 'Pedidos', orders_urgentes: 'Urgentes', orders_pendente: 'Pendentes', orders_aprovado: 'Aprovados', orders_aguardando_aprovacao: 'Aguardando Aprovação', orders_comprado: 'Comprados',
     entregas_chegou: 'Entregues',
     users: 'Usuários', audit: 'Auditoria',
-    fornecedores: 'Fornecedores', categorias: 'Categorias', profile: 'Meu Perfil'
+    fornecedores: 'Fornecedores', profile: 'Meu Perfil'
   };
   const titleEl = document.getElementById('pageTitle');
   if (titleEl) titleEl.innerHTML = `<i class="bi ${getPageIcon(page)} me-2"></i>${titles[page] || page}`;
@@ -149,7 +164,7 @@ function getPageIcon(page) {
     orders: 'bi-clipboard-check', orders_urgentes: 'bi-alarm', orders_pendente: 'bi-clock', orders_aprovado: 'bi-check-circle', orders_aguardando_aprovacao: 'bi-hourglass-split', orders_comprado: 'bi-cart-check',
     entregas_chegou: 'bi-truck',
     users: 'bi-people', audit: 'bi-journal-text',
-    fornecedores: 'bi-shop', categorias: 'bi-tags', profile: 'bi-person-circle'
+    fornecedores: 'bi-shop', profile: 'bi-person-circle'
   };
   return icons[page] || 'bi-speedometer2';
 }
@@ -254,8 +269,9 @@ function entregaBadge(s) {
 }
 function renderOrderNumero(o) {
   const horas = o.horas_sem_resposta || 0;
-  if (!o.urgente) return `<strong>${o.numero}</strong>`;
-  return `<strong class="text-danger">${o.numero}</strong> <span class="badge rounded-pill text-bg-danger urgente-badge" title="Sem resposta há ${horas} horas"><i class="bi bi-exclamation-triangle me-1"></i>${horas}h sem resposta</span>`;
+  const destBadge = o.destinatario_id ? ` <span class="badge rounded-pill text-bg-info" title="Enviado para: ${escapeHtml(o.destinatario_nome || '')}"><i class="bi bi-send me-1"></i>${escapeHtml(o.destinatario_nome || '---')}</span>` : '';
+  if (!o.urgente) return `<strong>${o.numero}</strong>${destBadge}`;
+  return `<strong class="text-danger">${o.numero}</strong> <span class="badge rounded-pill text-bg-danger urgente-badge" title="Sem resposta há ${horas} horas"><i class="bi bi-exclamation-triangle me-1"></i>${horas}h sem resposta</span>${destBadge}`;
 }
 function renderOrderRowClass(o) { return o.urgente ? ' class="order-urgent"' : ''; }
 function nextStatuses(current, perfil) {
@@ -284,6 +300,30 @@ function renderPagination(data, fn) {
 
 function getOrderSupplierId(order) {
   return order?.itens?.find((item) => item.fornecedor_id)?.fornecedor_id || null;
+}
+
+function buildOcGroups(order) {
+  const groups = [];
+  for (const item of (order.itens || [])) {
+    const itemData = {
+      id: item.id,
+      descricao: item.item_nome || item.descricao || item.peca_nome || '',
+      quantidade: Number(item.quantidade || 0),
+      unidade: item.unidade || 'un',
+      valor_unitario: Number(item.valor_unitario || 0),
+      valor_total: Number(item.valor_total || (Number(item.quantidade || 0) * Number(item.valor_unitario || 0))),
+      ci_os: item.ci_os || item.peca_codigo || '',
+      fornecedor_origem: item.fornecedor_origem || ''
+    };
+    groups.push({
+      fornecedor_id: item.fornecedor_id || null,
+      fornecedor_nome: item.fornecedor_nome || '',
+      fornecedor_telefone: '',
+      fornecedor_endereco: '',
+      itens: [itemData]
+    });
+  }
+  return groups;
 }
 
 function getNextLogisticsAction(order) {
@@ -350,14 +390,17 @@ async function fetchHtmlWithAuth(path) {
   return res.text();
 }
 
-async function printOrderCompra(pedidoId) {
+async function printOrderCompra(pedidoId, ocId) {
   const win = window.open('', '_blank');
   if (!win) {
     toast('Permita pop-ups para abrir a impressão', 'warning');
     return;
   }
   try {
-    const html = await fetchHtmlWithAuth(`/pedidos/${pedidoId}/ordem-compra/pdf`);
+    const path = ocId
+      ? `/pedidos/${pedidoId}/ordem-compra/${ocId}/pdf`
+      : `/pedidos/${pedidoId}/ordem-compra/pdf`;
+    const html = await fetchHtmlWithAuth(path);
     win.document.open();
     win.document.write(html);
     win.document.close();
@@ -367,70 +410,98 @@ async function printOrderCompra(pedidoId) {
   }
 }
 
-async function openOrdemCompraFlow(order) {
-  if (order.ordem_compra_id) {
-    await printOrderCompra(order.id);
-    return;
-  }
-  const supplierId = getOrderSupplierId(order);
-  let fornecedor = null;
-  if (supplierId) {
-    try {
-      fornecedor = await API.get(`/fornecedores/${supplierId}`);
-    } catch (err) {
-      toast(err.error || 'Erro ao carregar fornecedor', 'danger');
+async function printAllOrderCompras(pedidoId) {
+  try {
+    const ocs = await API.get(`/pedidos/${pedidoId}/ordens-compra`);
+    if (!ocs.length) {
+      toast('Nenhuma ordem de compra encontrada', 'warning');
       return;
     }
+    await printOrderCompra(pedidoId);
+  } catch (err) {
+    toast(err.error || 'Erro ao carregar ordens de compra', 'danger');
   }
-  await openOrdemCompraModal(order, fornecedor);
 }
 
-function buildOcItems(order) {
-  return (order.itens || []).map((item) => ({
-    descricao: item.item_nome || item.descricao || item.peca_nome || '',
-    quantidade: Number(item.quantidade || 0),
-    unidade: item.unidade || 'un',
-    valor_unitario: Number(item.valor_unitario || 0),
-    valor_total: Number(item.valor_total || (Number(item.quantidade || 0) * Number(item.valor_unitario || 0))),
-    ci_os: item.ci_os || item.peca_codigo || '',
-    aplicacao: order.placa || '',
-    origem: item.fornecedor_origem || ''
-  })).filter((item) => item.descricao);
+async function openOrdemCompraFlow(order) {
+  if (order.ordens_compra && order.ordens_compra.length > 0) {
+    await printAllOrderCompras(order.id);
+    return;
+  }
+  const groups = buildOcGroups(order);
+  await openOrdemCompraModal(order, groups);
 }
 
-async function openOrdemCompraModal(order, fornecedor) {
-  const items = buildOcItems(order);
-  const subtotal = items.reduce((sum, item) => sum + item.valor_total, 0);
-  const approvedTotal = Number(order.valor_total || subtotal);
+async function openOrdemCompraModal(order, groups) {
   const today = new Date().toISOString().slice(0, 10);
   const vehicleLabel = getOrderVehicleLabel(order);
-  const originName = getOrderOrigins(order);
-  const supplierName = fornecedor?.razao_social || fornecedor?.nome_fantasia || originName || '';
-  const supplierPhone = fornecedor?.telefone || '';
-  const supplierAddress = fornecedor?.endereco || '';
+  const totalAllGroups = groups.reduce((sum, g) => sum + g.itens.reduce((s, i) => s + i.valor_total, 0), 0);
+
+  let groupsHtml = '';
+  for (let gi = 0; gi < groups.length; gi++) {
+    const g = groups[gi];
+    const groupTotal = g.itens.reduce((s, i) => s + i.valor_total, 0);
+    const fornecedorData = g.fornecedor_id ? await loadFornecedorData(g.fornecedor_id) : {};
+    groups[gi].fornecedor_nome = g.fornecedor_nome || fornecedorData.razao_social || '';
+    groups[gi].fornecedor_telefone = fornecedorData.telefone || '';
+    groups[gi].fornecedor_endereco = fornecedorData.endereco || '';
+
+    groupsHtml += `
+      <div class="card mb-3 oc-group-card" data-group-index="${gi}">
+        <div class="card-header d-flex justify-content-between align-items-center" style="cursor:pointer;" onclick="this.parentElement.querySelector('.card-body').classList.toggle('d-none')">
+          <div>
+            <strong>Item ${gi + 1}:</strong> ${escapeHtml(groups[gi].itens[0]?.descricao || 'Sem descrição')}
+            ${groups[gi].fornecedor_nome ? `<span class="badge bg-secondary ms-2">${escapeHtml(groups[gi].fornecedor_nome)}</span>` : ''}
+          </div>
+          <div class="fw-bold">${fmtCurrency(groupTotal)}</div>
+        </div>
+        <div class="card-body">
+          <div class="row g-2 mb-2">
+            <div class="col-md-4">
+              <label class="form-label small">Nome / Razão Social</label>
+              <input class="form-control form-control-sm oc-fornecedor-nome" value="${escapeHtml(groups[gi].fornecedor_nome || '')}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small">Telefone</label>
+              <input class="form-control form-control-sm oc-fornecedor-telefone" value="${escapeHtml(groups[gi].fornecedor_telefone || '')}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small">Endereço</label>
+              <input class="form-control form-control-sm oc-fornecedor-endereco" value="${escapeHtml(groups[gi].fornecedor_endereco || '')}">
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered align-middle mb-0">
+              <thead class="table-light">
+                <tr><th>Qtd</th><th>Un</th><th>Descrição</th><th>Unitário</th><th>Total</th><th>Origem</th></tr>
+              </thead>
+              <tbody>
+                ${g.itens.map(item => `<tr>
+                  <td class="text-center">${item.quantidade}</td>
+                  <td class="text-center">${escapeHtml(item.unidade || 'un')}</td>
+                  <td>${escapeHtml(item.descricao)}</td>
+                  <td class="text-end">${fmtCurrency(item.valor_unitario)}</td>
+                  <td class="text-end">${fmtCurrency(item.valor_total)}</td>
+                  <td>${escapeHtml(item.fornecedor_origem || '—')}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+  }
+
   const m = modal(`
     <div class="modal-header">
-      <h5 class="modal-title fw-bold">Gerar Ordem de Compra${order.numero ? ' — Pedido ' + escapeHtml(String(order.numero)) : ''}</h5>
+      <h5 class="modal-title fw-bold">Gerar Ordens de Compra${order.numero ? ' — Pedido ' + escapeHtml(String(order.numero)) : ''}</h5>
       <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
     </div>
     <div class="modal-body">
       <div class="alert alert-info small mb-3">
-        Os itens do pedido serão reaproveitados automaticamente. Revise os campos da OC antes de imprimir.
+        Será gerada <strong>uma ordem de compra para cada item</strong>. Preencha os dados do fornecedor quando disponível.
       </div>
       <form id="ocForm">
-        <div class="row g-3">
-            <div class="col-md-8">
-            <label class="form-label">Fornecedor *</label>
-            <input class="form-control" name="fornecedor_nome" required placeholder="Nome do fornecedor" value="${escapeHtml(supplierName)}">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Telefone *</label>
-            <input class="form-control" name="fornecedor_telefone" required placeholder="Telefone" value="${escapeHtml(supplierPhone)}">
-          </div>
-          <div class="col-12">
-            <label class="form-label">Endereço *</label>
-            <input class="form-control" name="fornecedor_endereco" required placeholder="Endereço completo" value="${escapeHtml(supplierAddress)}">
-          </div>
+        <div class="row g-3 mb-3">
           <div class="col-md-4">
             <label class="form-label">Tipo *</label>
             <select class="form-select" name="tipo" required>
@@ -444,7 +515,7 @@ async function openOrdemCompraModal(order, fornecedor) {
             <label class="form-label">Prazo de entrega *</label>
             <input type="date" class="form-control" name="prazo_entrega" required>
           </div>
-            <div class="col-md-4">
+          <div class="col-md-4">
             <label class="form-label">Data de emissão *</label>
             <input type="date" class="form-control" name="data_emissao" required value="${today}">
           </div>
@@ -452,7 +523,7 @@ async function openOrdemCompraModal(order, fornecedor) {
             <label class="form-label">Condições de pagamento *</label>
             <input class="form-control" name="condicoes_pagamento" required placeholder="Forma + responsável">
           </div>
-            <div class="col-md-4">
+          <div class="col-md-4">
             <label class="form-label">Veículo</label>
             <input class="form-control" name="veiculo_uso" value="${escapeHtml(vehicleLabel)}" placeholder="Veículo">
           </div>
@@ -461,53 +532,18 @@ async function openOrdemCompraModal(order, fornecedor) {
             <input class="form-control" name="placa_uso" value="${escapeHtml(order.placa || '')}" placeholder="Placa">
           </div>
           <div class="col-md-4">
-            <label class="form-label">Data do pedido</label>
-            <input class="form-control" value="${fmtDate(order.data_pedido)}" disabled>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Subtotal</label>
-            <input class="form-control" id="ocSubtotal" value="${fmtCurrency(approvedTotal)}" disabled>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Total</label>
-            <input class="form-control" id="ocTotal" value="${fmtCurrency(approvedTotal)}" disabled>
+            <label class="form-label">Total Geral</label>
+            <input class="form-control" id="ocTotalGeral" value="${fmtCurrency(totalAllGroups)}" disabled>
           </div>
           <div class="col-12">
             <label class="form-label">Observações</label>
-            <textarea class="form-control" name="observacoes" rows="3" placeholder="Campo livre">${escapeHtml(order.observacoes || '')}</textarea>
+            <textarea class="form-control" name="observacoes" rows="2" placeholder="Campo livre">${escapeHtml(order.observacoes || '')}</textarea>
           </div>
         </div>
       </form>
 
-      <div class="mt-4">
-        <h6 class="fw-semibold mb-2">Itens que vão para a OC</h6>
-        <div class="table-responsive">
-          <table class="table table-sm table-bordered align-middle">
-            <thead class="table-light">
-              <tr>
-                <th>Qtd</th>
-                <th>Un</th>
-                <th>Descrição</th>
-                <th>Unitário</th>
-                <th>Total</th>
-                <th>Aplicação</th>
-                <th>Origem</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${items.map((item) => `<tr>
-                <td class="text-center">${item.quantidade}</td>
-                <td class="text-center">${escapeHtml(item.unidade || 'un')}</td>
-                <td>${escapeHtml(item.descricao)}</td>
-                <td class="text-end">${fmtCurrency(item.valor_unitario)}</td>
-                <td class="text-end">${fmtCurrency(item.valor_total)}</td>
-                <td>${escapeHtml(item.aplicacao || '')}</td>
-                <td>${escapeHtml(item.origem || '—')}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <h6 class="fw-semibold mb-2">Itens — cada um gera uma OC (${groups.length})</h6>
+      ${groupsHtml}
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -516,51 +552,66 @@ async function openOrdemCompraModal(order, fornecedor) {
 
   const form = document.getElementById('ocForm');
   const submitBtn = document.getElementById('ocSubmit');
-  const totalInput = document.getElementById('ocTotal');
-  const subtotalInput = document.getElementById('ocSubtotal');
-  const updateTotals = () => {
-    subtotalInput.value = fmtCurrency(approvedTotal);
-    totalInput.value = fmtCurrency(approvedTotal);
-  };
   const updateSubmitState = () => {
     const requiredFields = [...form.querySelectorAll('[required]')];
     const valid = requiredFields.every((field) => String(field.value || '').trim().length > 0);
     submitBtn.disabled = !valid;
   };
-  form.addEventListener('input', () => { updateTotals(); updateSubmitState(); });
-  form.addEventListener('change', () => { updateTotals(); updateSubmitState(); });
-  updateTotals();
+  form.addEventListener('input', updateSubmitState);
+  form.addEventListener('change', updateSubmitState);
   updateSubmitState();
 
   submitBtn.addEventListener('click', async () => {
+    const gruposPayload = [];
+    for (let gi = 0; gi < groups.length; gi++) {
+      const card = document.querySelector(`.oc-group-card[data-group-index="${gi}"]`);
+      const fname = card.querySelector('.oc-fornecedor-nome').value.trim();
+      const fphone = card.querySelector('.oc-fornecedor-telefone').value.trim();
+      const faddr = card.querySelector('.oc-fornecedor-endereco').value.trim();
+
+      gruposPayload.push({
+        fornecedor_id: groups[gi].fornecedor_id,
+        fornecedor_nome: fname || groups[gi].fornecedor_nome,
+        fornecedor_telefone: fphone,
+        fornecedor_endereco: faddr,
+        itens: groups[gi].itens
+      });
+    }
+
     const payload = {
-      fornecedor_id: getOrderSupplierId(order),
-      fornecedor_nome: form.fornecedor_nome.value.trim(),
-      fornecedor_endereco: form.fornecedor_endereco.value.trim(),
-      fornecedor_telefone: form.fornecedor_telefone.value.trim(),
+      grupos: gruposPayload,
       tipo: form.tipo.value,
       prazo_entrega: form.prazo_entrega.value,
       data_emissao: form.data_emissao.value,
       condicoes_pagamento: form.condicoes_pagamento.value.trim(),
       veiculo_uso: form.veiculo_uso.value.trim(),
       placa_uso: form.placa_uso.value.trim(),
-      observacoes: form.observacoes.value.trim(),
-      itens: items
+      observacoes: form.observacoes.value.trim()
     };
+
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Gerando...';
     try {
-      await API.post(`/pedidos/${order.id}/ordem-compra`, payload);
+      const result = await API.post(`/pedidos/${order.id}/ordem-compra`, payload);
       m.hide();
-      toast('Ordem de compra gerada');
-      await printOrderCompra(order.id);
+      const qty = result?.ids?.length || groups.length;
+      toast(`${qty} ordem${qty > 1 ? 's' : ''} de compra gerada${qty > 1 ? 's' : ''}`);
+      await printAllOrderCompras(order.id);
     } catch (err) {
-      toast((err.fields?.length ? `${err.error}: ${err.fields.join(', ')}` : err.error) || 'Erro ao gerar ordem de compra', 'danger');
+      toast((err.fields?.length ? `${err.error}: ${err.fields.join(', ')}` : err.error) || 'Erro ao gerar ordens de compra', 'danger');
     } finally {
       submitBtn.disabled = false;
       submitBtn.innerHTML = 'Gerar e Imprimir';
     }
   });
+}
+
+async function loadFornecedorData(fornecedorId) {
+  try {
+    return await API.get(`/fornecedores/${fornecedorId}`);
+  } catch {
+    return {};
+  }
 }
 
 // ===== NOTIFICATIONS =====
@@ -761,6 +812,7 @@ function setDashFilter(dias) {
 
 // ---------- DASHBOARD ----------
 let RANK_VEIC_DADOS = [];
+window.placaAtualConsultada = null;
 
 const rankPosClass = (i) => i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
 const rankIcon = (i) => i === 0 ? '<i class="fa-solid fa-trophy"></i>' : i === 1 ? '<i class="fa-solid fa-medal"></i>' : i === 2 ? '<i class="fa-solid fa-award"></i>' : (i + 1);
@@ -784,7 +836,71 @@ function filterRankVeic(valor) {
     : RANK_VEIC_DADOS.filter(r => [r.placa, r.marca, r.modelo].filter(Boolean).join(' ').toLowerCase().includes(termo));
   tbody.innerHTML = dados.length
     ? renderRankVeicRows(dados)
-    : '<tr><td colspan="4" style="text-align:center;padding:1.5rem;color:var(--text-light);"><i class="fa-solid fa-car-side mb-2" style="display:block;font-size:22px;opacity:.4"></i>Nenhum veículo encontrado</td></tr>';
+    : '<tr><td colspan="4" style="text-align:center;padding:1.5rem;color:var(--text-light);"><i class="fa-solid fa-car-side mb-2" style="display:block;font-size:22px;opacity:.4"></i>Nenhum veiculo encontrado</td></tr>';
+}
+
+function abrirSeletorPeriodo(formato) {
+  modal(`
+    <div class="modal-header">
+      <h5 class="modal-title fw-bold">Selecionar Periodo do Relatorio</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="radio" name="periodoTipo" id="periodoTodo" value="todo" checked>
+        <label class="form-check-label" for="periodoTodo">Todo o periodo</label>
+      </div>
+      <div class="form-check mb-3">
+        <input class="form-check-input" type="radio" name="periodoTipo" id="periodoEspecifico" value="especifico">
+        <label class="form-check-label" for="periodoEspecifico">Periodo especifico</label>
+      </div>
+      <div id="periodoDatas" style="display:none;">
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="form-label small">Data inicio</label>
+            <input type="date" class="form-control" id="periodoInicio">
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Data fim</label>
+            <input type="date" class="form-control" id="periodoFim">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+      <button type="button" class="btn btn-primary" onclick="gerarRelatorioComPeriodo('${formato}')">Gerar Relatorio</button>
+    </div>
+  `, 'sm');
+
+  document.querySelectorAll('input[name="periodoTipo"]').forEach(r =>
+    r.addEventListener('change', () => {
+      document.getElementById('periodoDatas').style.display =
+        document.getElementById('periodoEspecifico').checked ? 'block' : 'none';
+    })
+  );
+}
+
+function gerarRelatorioComPeriodo(formato) {
+  const especifico = document.getElementById('periodoEspecifico').checked;
+  let query = `formato=${formato}`;
+  if (especifico) {
+    const inicio = document.getElementById('periodoInicio').value;
+    const fim = document.getElementById('periodoFim').value;
+    if (!inicio || !fim) { alert('Selecione as duas datas do periodo.'); return; }
+    query += `&dataInicio=${inicio}&dataFim=${fim}`;
+  }
+
+  const placaAtual = window.placaAtualConsultada;
+  const base = placaAtual
+    ? `/api/dashboard/relatorio-veiculo/${encodeURIComponent(placaAtual)}/export`
+    : `/api/dashboard/relatorio-frota/export`;
+
+  const token = API.token || localStorage.getItem('token') || '';
+  const url = `${base}?${query}&token=${encodeURIComponent(token)}`;
+
+  window.open(url, '_blank');
+  _lastModal?.hide();
 }
 
 function buildMesKeys(dias) {
@@ -870,12 +986,41 @@ PAGES.dashboard = async function (dias) {
               <canvas id="chartGastosUsuario" height="260"></canvas>
             </div>
           </div>
+
+          <div class="vehicle-report-section" style="margin-top:24px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+              <h3 style="font-size:15px;font-weight:700;margin:0;"><i class="fa-solid fa-file-lines me-2" style="color:var(--accent)"></i>Relatorios de Veiculos</h3>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-outline-danger btn-sm" onclick="abrirSeletorPeriodo('pdf')" style="border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+                  <i class="fa-solid fa-file-pdf"></i> Relatorio PDF
+                </button>
+                <button class="btn btn-outline-success btn-sm" onclick="abrirSeletorPeriodo('excel')" style="border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+                  <i class="fa-solid fa-file-excel"></i> Relatorio Excel
+                </button>
+              </div>
+            </div>
+            <div class="placa-search-section">
+              <div class="placa-search-header">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <h3>Consulta por Placa</h3>
+              </div>
+              <div class="placa-search-box">
+                <div class="placa-input-wrapper">
+                  <input type="text" id="placaInput" placeholder="Digite a placa do veiculo..." autocomplete="off">
+                  <div id="placaSuggestions" class="placa-suggestions"></div>
+                </div>
+                <button onclick="buscarPorPlaca()"><i class="fa-solid fa-magnifying-glass"></i> Consultar</button>
+              </div>
+              <div id="placaResult"></div>
+            </div>
+          </div>
         </div>`;
       setTimeout(() => {
         const vm = buildValoresMesData(valoresMes, dias);
         createComboChart('chartValoresMes', vm.labels, vm.aprovados, vm.pendentes, vm.totalPedidos);
         const gu = buildGastosUsuarioData(gastosUsuario, dias);
         createLineChart('chartGastosUsuario', gu.labels, gu.valores, 'Valores Gastos', '#2ECC71', 'rgba(46, 204, 113, 0.15)');
+        initPlacaAutocomplete();
       }, 100);
     } else {
       const [kpisDir, valoresMes, pedidosSetor, rankSol, rankVeic, tempoMedio] = await Promise.all([
@@ -949,6 +1094,34 @@ PAGES.dashboard = async function (dias) {
               </div>
             </div>
           </div>
+
+          <div class="vehicle-report-section" style="margin-top:24px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+              <h3 style="font-size:15px;font-weight:700;margin:0;"><i class="fa-solid fa-file-lines me-2" style="color:var(--accent)"></i>Relatorios de Veiculos</h3>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-outline-danger btn-sm" onclick="abrirSeletorPeriodo('pdf')" style="border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+                  <i class="fa-solid fa-file-pdf"></i> Relatorio PDF
+                </button>
+                <button class="btn btn-outline-success btn-sm" onclick="abrirSeletorPeriodo('excel')" style="border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+                  <i class="fa-solid fa-file-excel"></i> Relatorio Excel
+                </button>
+              </div>
+            </div>
+            <div class="placa-search-section">
+              <div class="placa-search-header">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <h3>Consulta por Placa</h3>
+              </div>
+              <div class="placa-search-box">
+                <div class="placa-input-wrapper">
+                  <input type="text" id="placaInput" placeholder="Digite a placa do veiculo..." autocomplete="off">
+                  <div id="placaSuggestions" class="placa-suggestions"></div>
+                </div>
+                <button onclick="buscarPorPlaca()"><i class="fa-solid fa-magnifying-glass"></i> Consultar</button>
+              </div>
+              <div id="placaResult"></div>
+            </div>
+          </div>
         </div>`;
 
       setTimeout(() => {
@@ -959,6 +1132,7 @@ PAGES.dashboard = async function (dias) {
         const sPedidos = (pedidosSetor || []).map(r => r.total || 0);
         const sValores = (pedidosSetor || []).map(r => parseFloat(r.valor) || 0);
         createPedidosValoresLinha('chartSetorLinha', sLabels, sPedidos, sValores);
+        initPlacaAutocomplete();
       }, 50);
     }
   } catch (err) {
@@ -988,7 +1162,7 @@ PAGES.profile = async function () {
           <h6 class="fw-bold mb-2">Informações</h6>
           <div class="row g-2">
             <div class="col-md-6"><small class="text-muted">ID:</small><p class="mb-0">${user.id}</p></div>
-            <div class="col-md-6"><small class="text-muted">Nick:</small><p class="mb-0">@${user.nick}</p></div>
+            <div class="col-md-6"><small class="text-muted">Usuário:</small><p class="mb-0">@${user.nick}</p></div>
           </div>
         </div>
       </div>
@@ -1359,63 +1533,6 @@ async function delFornecedor(id) {
   catch (err) { toast(err.error || 'Erro', 'danger'); }
 }
 
-// ---------- CATEGORIAS ----------
-PAGES.categorias = async function (pg = 1) {
-  const c = document.getElementById('pageContent');
-  c.innerHTML = `<div class="loading-screen"><div class="spinner-border"></div></div>`;
-  try {
-    const data = await API.get(`/categorias-pecas?page=${pg}&limit=20`);
-    c.innerHTML = `
-      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-        <div></div>
-        <button class="btn btn-primary btn-sm" onclick="openCategoria()"><i class="bi bi-plus-lg me-1"></i>Nova Categoria</button>
-      </div>
-      <div class="card"><div class="table-responsive">
-        ${!data.data?.length ? '<div class="empty-state"><i class="bi bi-tags"></i><p>Nenhuma categoria</p></div>' : `
-        <table class="table table-hover"><thead><tr><th>Nome</th><th>Descrição</th><th class="text-end">Ações</th></tr></thead>
-        <tbody>${data.data.map(c => `<tr>
-          <td><strong>${c.nome}</strong></td><td>${c.descricao || '-'}</td>
-          <td class="text-end"><div class="table-actions justify-content-end">
-            <button class="btn btn-outline-primary" onclick="openCategoria(${c.id})"><i class="bi bi-pencil"></i></button>
-            <button class="btn btn-outline-danger" onclick="delCategoria(${c.id})"><i class="bi bi-trash"></i></button>
-          </div></td>
-        </tr>`).join('')}</tbody></table>`}
-      </div>${renderPagination(data, 'PAGES.categorias')}</div>`;
-  } catch (err) { c.innerHTML = `<div class="alert alert-danger">${err.error || 'Erro'}</div>`; }
-};
-
-async function openCategoria(id) {
-  let cat = { nome: '', descricao: '' };
-  if (id) try { cat = await API.get(`/categorias-pecas/${id}`); } catch { return; }
-  const isEdit = !!id;
-  const m = modal(`
-    <div class="modal-header"><h5 class="modal-title fw-bold">${isEdit ? 'Editar' : 'Nova'} Categoria</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-    <div class="modal-body">
-      <form id="catForm">
-        <div class="mb-3"><label class="form-label">Nome *</label><input class="form-control" name="nome" value="${cat.nome}" required></div>
-        <div class="mb-3"><label class="form-label">Descrição</label><textarea class="form-control" name="descricao" rows="3">${cat.descricao || ''}</textarea></div>
-      </form>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-      <button class="btn btn-primary" id="catSubmit">${isEdit ? 'Atualizar' : 'Salvar'}</button>
-    </div>`);
-  document.getElementById('catSubmit').addEventListener('click', async () => {
-    const fd = Object.fromEntries(new FormData(document.getElementById('catForm')));
-    try {
-      if (isEdit) { await API.put(`/categorias-pecas/${id}`, fd); toast('Categoria atualizada'); }
-      else { await API.post('/categorias-pecas', fd); toast('Categoria criada'); }
-      m.hide(); PAGES.categorias();
-    } catch (err) { toast(err.error || 'Erro', 'danger'); }
-  });
-}
-
-async function delCategoria(id) {
-  if (!confirm('Excluir categoria?')) return;
-  try { await API.del(`/categorias-pecas/${id}`); toast('Excluída'); PAGES.categorias(); }
-  catch (err) { toast(err.error || 'Erro', 'danger'); }
-}
-
 // ---------- ORDERS ----------
 PAGES.orders = async function (pg = 1) {
   await applyOrderFilters(pg);
@@ -1773,7 +1890,7 @@ async function viewOrder(id) {
     const canApprove = o.status === 'aguardando_aprovacao'
       && (precisaDiretor ? user.perfil === 'diretor' : (Number(o.usuario_id) === Number(user.id) || user.perfil === 'logistica'));
 
-    const hasOC = !!o.ordem_compra_id;
+    const hasOC = !!(o.ordens_compra && o.ordens_compra.length > 0);
     const nextLogisticsAction = getNextLogisticsAction(o);
 
     var mHtml = '';
@@ -1860,8 +1977,10 @@ async function viewOrder(id) {
       mHtml += '        <div class="pm-section-title"><i data-lucide="printer"></i> Ordem de Compra</div>';
       mHtml += '        <div class="pm-oc-area">';
       if (hasOC) {
-        mHtml += '          <div class="pm-oc-label"><strong>OC ' + escapeHtml(o.ordem_compra_numero || '') + '</strong> j\u00e1 gerada.</div>';
-        mHtml += '          <button class="pm-btn pm-btn-primary pm-btn-sm" id="ordemCompraBtn"><i data-lucide="printer"></i> Imprimir</button>';
+        const ocCount = o.ordens_compra.length;
+        const ocLabels = o.ordens_compra.map(oc => escapeHtml(oc.numero || '')).join(', ');
+        mHtml += '          <div class="pm-oc-label"><strong>' + ocCount + ' OC(s):</strong> ' + ocLabels + '</div>';
+        mHtml += '          <button class="pm-btn pm-btn-primary pm-btn-sm" id="ordemCompraBtn"><i data-lucide="printer"></i> Imprimir OCs</button>';
       } else {
         mHtml += '          <div class="pm-oc-label"></div>';
         mHtml += '          <button class="pm-btn pm-btn-primary pm-btn-sm" id="ordemCompraBtn"><i data-lucide="printer"></i> Gerar Ordem de Compra</button>';
@@ -1904,7 +2023,10 @@ async function viewOrder(id) {
     mHtml += '            <div class="pm-info-item"><span class="pm-info-item-label"><i data-lucide="user"></i> Criado por</span><span class="pm-info-item-value">' + escapeHtml(o.usuario_nome || '---') + '</span></div>';
     mHtml += '            <div class="pm-info-item"><span class="pm-info-item-label"><i data-lucide="clock"></i> \u00daltima Atualiza\u00e7\u00e3o</span><span class="pm-info-item-value">' + fmtDate(o.updated_at || o.ultima_atualizacao) + '</span></div>';
     mHtml += '            <div class="pm-info-item"><span class="pm-info-item-label"><i data-lucide="layers"></i> Departamento</span><span class="pm-info-item-value">' + escapeHtml(o.departamento || '---') + '</span></div>';
-    mHtml += '            <div class="pm-info-item"><span class="pm-info-item-label"><i data-lucide="calendar"></i> Previsão de Entrega</span><span class="pm-info-item-value">' + fmtDate(o.previsao_entrega) + '</span></div>';
+    mHtml += '            <div class="pm-info-item"><span class="pm-info-item-label"><i data-lucide="calendar"></i> Previs\u00e3o de Entrega</span><span class="pm-info-item-value">' + fmtDate(o.previsao_entrega) + '</span></div>';
+    if (o.destinatario_id) {
+      mHtml += '            <div class="pm-info-item"><span class="pm-info-item-label"><i data-lucide="send"></i> Enviado para</span><span class="pm-info-item-value"><span class="badge rounded-pill text-bg-info" title="Enviado para: ' + escapeHtml(o.destinatario_nome || '') + ' confirmar a compra">' + escapeHtml('Enviado para: ' + (o.destinatario_nome || '---')) + '</span></span></div>';
+    }
     mHtml += '          </div>';
     mHtml += '        </div>';
     mHtml += '      </div>';
@@ -2049,19 +2171,32 @@ async function openOrder(id) {
       return;
     }
     let order = null;
-    const vehicles = await API.get('/vehicles?limit=100');
-    if (!vehicles.data?.length) { toast('Cadastre um veículo primeiro', 'warning'); return; }
-
     if (isEdit) {
       order = await API.get(`/orders/${id}`);
+    }
+
+    let destinatorOptions = '';
+    if (user.perfil === 'logistica' && !isEdit) {
+      try {
+        const [diretores, admins] = await Promise.all([
+          API.get('/users/perfil/diretor').catch(() => []),
+          API.get('/users/perfil/administrativo').catch(() => [])
+        ]);
+        const seen = new Set();
+        destinatorOptions = [...(Array.isArray(diretores) ? diretores : []), ...(Array.isArray(admins) ? admins : [])]
+          .filter(u => u && u.ativo !== 0 && !seen.has(u.id) && seen.add(u.id))
+          .map(u => '<option value="' + u.id + '">' + escapeHtml(u.nome) + '</option>')
+          .join('');
+      } catch (e) { destinatorOptions = ''; }
     }
 
     const isOficina = user.perfil === 'oficina';
     const hasItems = isEdit && order.itens?.length;
 
-    const vehicleOpts = vehicles.data.map(v =>
-      `<option value="${v.id}"${isEdit && order.veiculo_id === v.id ? ' selected' : ''}>${v.placa} — ${v.modelo_nome || v.modelo} (${v.marca_nome || v.marca})</option>`
-    ).join('');
+    const editPlaca = isEdit ? (order.placa || '') : '';
+    const editModelo = isEdit ? ((order.veiculo_marca ? order.veiculo_marca + ' ' : '') + (order.veiculo_modelo || '')) : '';
+    const editVeiculoLabel = editPlaca ? editPlaca + (editModelo ? ' — ' + editModelo : '') : '';
+    const editVeiculoId = isEdit ? (order.veiculo_id || '') : '';
 
     var mHtml = '';
     mHtml += '<div class="pm-header">';
@@ -2084,20 +2219,31 @@ async function openOrder(id) {
     mHtml += '      <form id="orderForm">';
     mHtml += '        <div class="pm-section">';
     mHtml += '          <div class="pm-section-title"><i data-lucide="car"></i> Veículo *</div>';
-    mHtml += '          <select class="pm-input" name="veiculo_id" required style="cursor:pointer;">';
-    mHtml += '            <option value="">Selecione um veículo...</option>';
-    mHtml +=              vehicleOpts;
-    mHtml += '          </select>';
+    mHtml += '          <div class="placa-input-wrapper">';
+    mHtml += '            <input type="text" id="veiculoPlacaInput" class="pm-input" placeholder="Digite a placa do veículo..." autocomplete="off" value="' + escapeHtml(editVeiculoLabel) + '" required>';
+    mHtml += '            <div id="veiculoSuggestions" class="placa-suggestions"></div>';
+    mHtml += '          </div>';
+    mHtml += '          <input type="hidden" name="veiculo_id" id="veiculoIdHidden" value="' + escapeHtml(String(editVeiculoId)) + '">';
     mHtml += '        </div>';
     mHtml += '        <div class="pm-section">';
     mHtml += '          <div class="pm-section-title"><i data-lucide="file-text"></i> Observações</div>';
     mHtml += '          <textarea class="pm-textarea" name="observacoes" rows="2" placeholder="Observações do pedido">' + (isEdit ? escapeHtml(order.observacoes || '') : '') + '</textarea>';
     mHtml += '        </div>';
     mHtml += '        <div class="pm-section">';
-    mHtml += '          <div class="pm-section-title"><i data-lucide="calendar"></i> Previsão de Entrega</div>';
+    mHtml += '          <div class="pm-section-title"><i data-lucide="calendar"></i> Previs\u00e3o de Entrega</div>';
     mHtml += '          <input type="date" class="pm-input" name="previsao_entrega" value="' + (isEdit && order.previsao_entrega ? order.previsao_entrega.split('T')[0] : '') + '"' + (user.perfil === 'logistica' ? ' required' : ' disabled') + '>';
-    mHtml += '          ' + (user.perfil === 'logistica' ? '' : '<small class="text-muted d-block mt-1">Somente logística pode alterar esta data</small>');
+    mHtml += '          ' + (user.perfil === 'logistica' ? '' : '<small class="text-muted d-block mt-1">Somente log\u00edstica pode alterar esta data</small>');
     mHtml += '        </div>';
+    if (user.perfil === 'logistica' && !isEdit && destinatorOptions) {
+      mHtml += '        <div class="pm-section">';
+      mHtml += '          <div class="pm-section-title"><i data-lucide="send"></i> Enviar para</div>';
+      mHtml += '          <select class="pm-input" name="destinatario_id">';
+      mHtml += '            <option value="">— Vis\u00edvel para todos (opcional) —</option>';
+      mHtml += destinatorOptions;
+      mHtml += '          </select>';
+      mHtml += '          <small class="text-muted d-block mt-1">Se selecionado, o pedido ficar\u00e1 vis\u00edvel apenas para voc\u00ea e para o destinat\u00e1rio, que receber\u00e1 uma notifica\u00e7\u00e3o para confirmar a compra.</small>';
+      mHtml += '        </div>';
+    }
     mHtml += '        <div class="pm-section">';
     mHtml += '          <div class="pm-section-title"><i data-lucide="shopping-cart"></i> Itens do Pedido</div>';
     mHtml += '          <div class="pm-items-card">';
@@ -2172,6 +2318,7 @@ async function openOrder(id) {
     _lastModal = bsModal;
     modalEl.addEventListener('hidden.bs.modal', function () { modalEl.remove(); if (_lastModal === bsModal) _lastModal = null; });
     if (window.lucide) lucide.createIcons();
+    initVeiculoAutocomplete();
 
     const orderForm = document.getElementById('orderForm');
     const orderSubmitBtn = document.getElementById('orderSubmit');
@@ -2249,7 +2396,9 @@ async function openOrder(id) {
         if (isEdit) {
           await API.put('/orders/' + id, { veiculo_id: parseInt(veiculo_id), observacoes: form.observacoes.value, itens: itens, previsao_entrega: previsao });
         } else {
-          var newOrder = await API.post('/orders', { veiculo_id: parseInt(veiculo_id), observacoes: form.observacoes.value, itens: itens, previsao_entrega: previsao });
+          var destSel = form.querySelector('[name="destinatario_id"]');
+          var destinatarioId = destSel && destSel.value ? parseInt(destSel.value) : undefined;
+          var newOrder = await API.post('/orders', { veiculo_id: parseInt(veiculo_id), observacoes: form.observacoes.value, itens: itens, previsao_entrega: previsao, destinatario_id: destinatarioId });
           for (var _fi = 0; _fi < pendingPhotos.length; _fi++) {
             var fd = new FormData();
             fd.append('foto', pendingPhotos[_fi]);
@@ -2382,7 +2531,7 @@ PAGES.users = async function () {
             <span class="badge bg-${g.color}">${membros.length}</span>
           </div>
           ${!membros.length ? '<div class="card-body p-3 text-center text-muted"><small>Nenhum usuário</small></div>' : `
-          <div class="table-responsive"><table class="table table-hover mb-0"><thead><tr><th>Nome</th><th>Nick</th><th class="d-none d-sm-table-cell">Setor</th><th>Ativo</th><th class="text-end">Ações</th></tr></thead>
+          <div class="table-responsive"><table class="table table-hover mb-0"><thead><tr><th>Nome</th><th>Usuário</th><th class="d-none d-sm-table-cell">Setor</th><th>Ativo</th><th class="text-end">Ações</th></tr></thead>
             <tbody>${membros.map(u => `<tr>
               <td><div class="d-flex align-items-center gap-2"><div class="user-avatar-mini bg-${g.color} bg-opacity-10 text-${g.color}">${escapeHtml((u.nome||'U').charAt(0).toUpperCase())}</div>${escapeHtml(u.nome)}</div></td>
               <td><small class="text-muted">@${escapeHtml(u.nick)}</small></td>
@@ -2411,7 +2560,7 @@ async function openUser(id) {
         <div class="mb-3"><label class="form-label">Setor *</label><select class="form-select" name="setor" required><option value="" disabled ${SETORES.includes(u.setor) ? '' : 'selected'}>Selecione o setor</option>${SETORES.map(s => `<option value="${s}" ${u.setor === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
         <div class="mb-3"><label class="form-label">${isEdit ? 'Nova senha (deixe vazio para manter)' : 'Senha *'}</label><input class="form-control" name="senha" type="password" ${isEdit ? '' : 'required'}></div>
         <div class="mb-3"><label class="form-label">Perfil</label><select class="form-select" name="perfil">${Object.entries(ROLE_INFO).map(([p, i]) => `<option value="${p}" ${u.perfil===p?'selected':''}>${i.label}</option>`).join('')}</select></div>
-        <div class="mb-3"><label class="form-label">Nick *</label><input class="form-control" name="nick" value="${escapeHtml(u.nick)}" placeholder="Nick usado no login" required></div>
+        <div class="mb-3"><label class="form-label">Usuário *</label><input class="form-control" name="nick" value="${escapeHtml(u.nick)}" placeholder="Usuário usado no login" required></div>
         <div class="form-check"><input class="form-check-input" type="checkbox" name="ativo" value="1" ${u.ativo?'checked':''} id="userAtivo"><label class="form-check-label" for="userAtivo">Ativo</label></div>
       </form>
     </div>
@@ -2448,9 +2597,11 @@ async function buscarPorPlaca(placa) {
   try {
     const data = await API.get('/dashboard/pedidos-por-placa?placa=' + encodeURIComponent(p));
     if (!data || !data.veiculo) {
+      window.placaAtualConsultada = null;
       resultDiv.innerHTML = '<div class="placa-no-results"><i class="fa-solid fa-car-side"></i><br>Veiculo nao encontrado</div>';
       return;
     }
+    window.placaAtualConsultada = data.veiculo?.placa || null;
     const v = data.veiculo;
     const pedidos = data.pedidos || [];
     resultDiv.innerHTML = `<div class="placa-result">
@@ -2463,6 +2614,10 @@ async function buscarPorPlaca(placa) {
         <span><i class="fa-solid fa-fingerprint me-1" style="color:var(--text-light)"></i><strong>Chassi:</strong> ${escapeHtml(v.chassi || '-')}</span>
         <span><i class="fa-solid fa-road me-1" style="color:var(--success)"></i><strong>Km:</strong> ${v.quilometragem ? v.quilometragem.toLocaleString('pt-BR') + ' km' : '-'}</span>
         <span><i class="fa-solid fa-clipboard-list me-1" style="color:var(--primary)"></i><strong>Pedidos:</strong> ${pedidos.length}</span>
+      </div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin:0.75rem 0;">
+        <a href="/api/dashboard/relatorio-veiculo/${encodeURIComponent(p)}/export?formato=pdf&token=${encodeURIComponent(API.token || localStorage.getItem('token') || '')}" target="_blank" class="btn-view" style="width:auto;padding:7px 16px;border:none;border-radius:8px;background:var(--danger,#dc3545);color:#fff;cursor:pointer;font-size:12px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'"><i class="fa-solid fa-file-pdf"></i> Exportar PDF</a>
+        <a href="/api/dashboard/relatorio-veiculo/${encodeURIComponent(p)}/export?formato=excel&token=${encodeURIComponent(API.token || localStorage.getItem('token') || '')}" target="_blank" class="btn-view" style="width:auto;padding:7px 16px;border:none;border-radius:8px;background:var(--success,#16a34a);color:#fff;cursor:pointer;font-size:12px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'"><i class="fa-solid fa-file-excel"></i> Exportar Excel</a>
       </div>
       ${!pedidos.length ? '<div class="placa-no-results" style="padding:20px"><i class="fa-solid fa-inbox"></i><br>Nenhum pedido encontrado para este veiculo</div>' : pedidos.map(o => `
       <div class="placa-order-card">
@@ -2525,7 +2680,7 @@ function initPlacaAutocomplete() {
   input.addEventListener('input', () => {
     clearTimeout(timer);
     const q = input.value.trim().toUpperCase();
-    if (q.length < 1) { closeSuggestions(); return; }
+    if (q.length < 1) { closeSuggestions(); window.placaAtualConsultada = null; return; }
     timer = setTimeout(async () => {
       try {
         const data = await API.get('/dashboard/suggest-placas?q=' + encodeURIComponent(q));
@@ -2570,6 +2725,102 @@ function initPlacaAutocomplete() {
   });
 
   input.addEventListener('blur', () => setTimeout(closeSuggestions, 200));
+
+  input.addEventListener('focus', () => {
+    if (suggestions.children.length > 0) suggestions.classList.add('show');
+  });
+}
+
+function closeVeiculoSuggestions() {
+  const el = document.getElementById('veiculoSuggestions');
+  if (el) { el.classList.remove('show'); el.innerHTML = ''; }
+}
+
+function selectVeiculoSuggestion(id, placa, modelo) {
+  const input = document.getElementById('veiculoPlacaInput');
+  const hidden = document.getElementById('veiculoIdHidden');
+  if (input) input.value = placa + (modelo ? ' — ' + modelo : '');
+  if (hidden) hidden.value = id;
+  closeVeiculoSuggestions();
+  const form = document.getElementById('orderForm');
+  if (form) form.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function initVeiculoAutocomplete() {
+  const input = document.getElementById('veiculoPlacaInput');
+  const suggestions = document.getElementById('veiculoSuggestions');
+  if (!input || !suggestions) return;
+  let timer, selectedIndex = -1, lastSelectedId = input.dataset.selectedId || '';
+
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (lastSelectedId && input.value !== input.dataset.selectedLabel) {
+      const hidden = document.getElementById('veiculoIdHidden');
+      if (hidden) hidden.value = '';
+      lastSelectedId = '';
+      delete input.dataset.selectedId;
+      delete input.dataset.selectedLabel;
+      const form = document.getElementById('orderForm');
+      if (form) form.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if (q.length < 2) { closeVeiculoSuggestions(); return; }
+    timer = setTimeout(async () => {
+      try {
+        const data = await API.get('/vehicles/search?q=' + encodeURIComponent(q));
+        selectedIndex = -1;
+        if (!data || !data.length) {
+          suggestions.innerHTML = '<div class="placa-suggest-empty">Nenhum veículo encontrado com essa placa</div>';
+          suggestions.classList.add('show');
+          return;
+        }
+        suggestions.innerHTML = data.map((item, i) =>
+          `<div class="placa-suggest-item" data-index="${i}" data-id="${item.id}" data-placa="${item.placa}" data-modelo="${(item.marca_nome || '') + ' ' + (item.modelo_nome || '')}">
+            <span class="suggest-placa">${escapeHtml(item.placa)}</span>
+            <span class="suggest-modelo">${escapeHtml((item.marca_nome || '') + ' ' + (item.modelo_nome || ''))}</span>
+          </div>`
+        ).join('');
+        suggestions.classList.add('show');
+      } catch { closeVeiculoSuggestions(); }
+    }, 300);
+  });
+
+  suggestions.addEventListener('click', (e) => {
+    const item = e.target.closest('.placa-suggest-item');
+    if (!item) return;
+    const id = item.dataset.id;
+    const placa = item.dataset.placa;
+    const modelo = (item.dataset.modelo || '').trim();
+    selectVeiculoSuggestion(id, placa, modelo);
+    lastSelectedId = id;
+    input.dataset.selectedId = id;
+    input.dataset.selectedLabel = placa + (modelo ? ' — ' + modelo : '');
+  });
+
+  input.addEventListener('keydown', (e) => {
+    const items = suggestions.querySelectorAll('.placa-suggest-item');
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+      items.forEach((el, i) => el.classList.toggle('active', i === selectedIndex));
+      if (items[selectedIndex]) items[selectedIndex].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      selectedIndex = Math.max(selectedIndex - 1, 0);
+      items.forEach((el, i) => el.classList.toggle('active', i === selectedIndex));
+      if (items[selectedIndex]) items[selectedIndex].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      if (selectedIndex >= 0 && items[selectedIndex]) {
+        e.preventDefault();
+        items[selectedIndex].click();
+      }
+    } else if (e.key === 'Escape') {
+      closeVeiculoSuggestions();
+    }
+  });
+
+  input.addEventListener('blur', () => setTimeout(closeVeiculoSuggestions, 200));
 
   input.addEventListener('focus', () => {
     if (suggestions.children.length > 0) suggestions.classList.add('show');

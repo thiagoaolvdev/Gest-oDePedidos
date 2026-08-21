@@ -8,14 +8,14 @@ const service = new OrderService();
 const index = async (req, res, next) => {
   try {
     const { page = 1, limit = 20, ...filters } = req.query;
-    const result = await service.findAll(filters, parseInt(page), parseInt(limit));
+    const result = await service.findAll(filters, parseInt(page), parseInt(limit), req.userId, req.userPerfil);
     res.json(result);
   } catch (err) { next(err); }
 };
 
 const show = async (req, res, next) => {
   try {
-    const order = await service.findById(req.params.id);
+    const order = await service.findById(req.params.id, req.userId, req.userPerfil);
     res.json(order);
   } catch (err) { next(err); }
 };
@@ -23,7 +23,7 @@ const show = async (req, res, next) => {
 const store = async (req, res, next) => {
   try {
     const ip = req.ip || req.connection.remoteAddress;
-    const order = await service.create(req.body, req.userId, ip);
+    const order = await service.create(req.body, req.userId, req.userPerfil, ip);
     res.status(201).json(order);
   } catch (err) { next(err); }
 };
@@ -88,7 +88,7 @@ const upload = async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
 
-    const order = await service.findById(req.params.id);
+    const order = await service.findById(req.params.id, req.userId, req.userPerfil);
     const isOwner = order.usuario_id === req.userId;
     const isAssignedMechanic = order.mecanico_id && Number(order.mecanico_id) === Number(req.userId);
     const isAdmin = ['garantia', 'funilaria', 'diretor'].includes(req.userPerfil);

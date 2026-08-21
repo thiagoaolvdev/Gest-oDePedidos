@@ -2,15 +2,20 @@ const jwt = require('jsonwebtoken');
 const { jwtSecret } = require('../config/auth');
 
 const authenticate = (req, res, next) => {
+  let token = null;
   const authHeader = req.headers.authorization;
-  if (!authHeader) {
+  if (authHeader) {
+    const parts = authHeader.split(' ');
+    if (parts.length === 2 && parts[0] === 'Bearer') {
+      token = parts[1];
+    }
+  }
+  if (!token && req.query && req.query.token) {
+    token = req.query.token;
+  }
+  if (!token) {
     return res.status(401).json({ error: 'Token não fornecido' });
   }
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    return res.status(401).json({ error: 'Formato de token inválido' });
-  }
-  const token = parts[1];
   try {
     const decoded = jwt.verify(token, jwtSecret);
     req.userId = decoded.id;
