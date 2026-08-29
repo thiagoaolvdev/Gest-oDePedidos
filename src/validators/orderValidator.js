@@ -2,7 +2,8 @@ const { required, isIn } = require('../middlewares/validationMiddleware');
 
 const createOrderSchema = {
   body: {
-    veiculo_id: [required]
+    veiculo_id: [required],
+    triagem: [isIn(['urgente', 'carro_vendido', 'carro_estoque'])]
   }
 };
 

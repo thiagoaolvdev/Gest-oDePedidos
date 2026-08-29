@@ -24,6 +24,9 @@ const store = async (req, res, next) => {
   try {
     const ip = req.ip || req.connection.remoteAddress;
     const order = await service.create(req.body, req.userId, req.userPerfil, ip);
+    if (order.duplicidadeDetectada) {
+      return res.status(200).json(order);
+    }
     res.status(201).json(order);
   } catch (err) { next(err); }
 };

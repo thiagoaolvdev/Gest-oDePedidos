@@ -13,6 +13,7 @@ const partRoutes = require('./src/routes/partRoutes');
 const orderRoutes = require('./src/routes/orderRoutes');
 const notificationRoutes = require('./src/routes/notificationRoutes');
 const dashboardRoutes = require('./src/routes/dashboardRoutes');
+const kpiRoutes = require('./src/routes/kpiRoutes');
 const auditRoutes = require('./src/routes/auditRoutes');
 const marcaRoutes = require('./src/routes/marcaRoutes');
 const modeloRoutes = require('./src/routes/modeloRoutes');
@@ -101,6 +102,7 @@ app.use('/api/parts', partRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/kpis', kpiRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/marcas', marcaRoutes);
 app.use('/api/modelos', modeloRoutes);
@@ -138,6 +140,7 @@ app.get('/app/*', (req, res) => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
+app.use('/vendor/chartjs', express.static(path.join(__dirname, 'node_modules', 'chart.js', 'dist')));
 
 if (process.env.NODE_ENV === 'production') {
   app.use('/api-docs', (req, res) => {

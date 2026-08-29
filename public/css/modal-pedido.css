@@ -714,3 +714,31 @@
   .pm-oc-area { gap: 0.5rem; }
   .pm-info-grid { grid-template-columns: 1fr; }
 }
+
+/* ===== TRIAGEM (Urgente / Carro vendido / Carro estoque) ===== */
+.pm-triagem-group { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.pm-triagem-btn {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: 'Inter', sans-serif;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.pm-triagem-btn:hover { background: rgba(255, 255, 255, 0.08); color: #e2e8f0; border-color: rgba(255, 255, 255, 0.2); }
+.pm-triagem-btn.active.pm-triagem-urgente { background: rgba(220, 38, 38, 0.16); border-color: #dc2626; color: #fca5a5; }
+.pm-triagem-btn.active.pm-triagem-vendido { background: rgba(37, 99, 235, 0.16); border-color: #2563eb; color: #93c5fd; }
+.pm-triagem-btn.active.pm-triagem-estoque { background: rgba(124, 58, 237, 0.16); border-color: #7c3aed; color: #c4b5fd; }
+@media (max-width: 575.98px) {
+  .pm-triagem-btn { flex: 1 1 100%; }
+}

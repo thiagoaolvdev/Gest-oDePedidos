@@ -18,10 +18,22 @@ async function up() {
     console.log('UNIQUE em pedido_id removido.');
   }
 
-  await db.execute(`
-    ALTER TABLE ordens_compra
-    ADD COLUMN pedido_item_id INT NOT NULL AFTER pedido_id
+  const [columns] = await db.query(`
+    SELECT COLUMN_NAME FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'ordens_compra'
+      AND COLUMN_NAME = 'pedido_item_id'
   `);
+
+  if (!columns.length) {
+    await db.execute(`
+      ALTER TABLE ordens_compra
+      ADD COLUMN pedido_item_id INT NOT NULL AFTER pedido_id
+    `);
+    console.log('Coluna ordens_compra.pedido_item_id criada.');
+  } else {
+    console.log('Coluna ordens_compra.pedido_item_id já existe.');
+  }
 
   // Popular pedido_item_id a partir do vínculo existente em pedido_itens.ordem_compra_id
   await db.execute(`
@@ -34,15 +46,35 @@ async function up() {
     WHERE oc.pedido_item_id = 0 OR oc.pedido_item_id IS NULL
   `);
 
-  await db.execute(`
-    ALTER TABLE ordens_compra
-    ADD CONSTRAINT fk_oc_pedido_item FOREIGN KEY (pedido_item_id) REFERENCES pedido_itens(id)
+  const [fks] = await db.query(`
+    SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'ordens_compra'
+      AND CONSTRAINT_NAME = 'fk_oc_pedido_item'
   `);
 
-  await db.execute(`
-    ALTER TABLE ordens_compra
-    ADD UNIQUE KEY uq_oc_pedido_item (pedido_item_id)
+  if (!fks.length) {
+    await db.execute(`
+      ALTER TABLE ordens_compra
+      ADD CONSTRAINT fk_oc_pedido_item FOREIGN KEY (pedido_item_id) REFERENCES pedido_itens(id)
+    `);
+    console.log('Constraint fk_oc_pedido_item criada.');
+  }
+
+  const [uniqueKeys] = await db.query(`
+    SELECT INDEX_NAME FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'ordens_compra'
+      AND INDEX_NAME = 'uq_oc_pedido_item'
   `);
+
+  if (!uniqueKeys.length) {
+    await db.execute(`
+      ALTER TABLE ordens_compra
+      ADD UNIQUE KEY uq_oc_pedido_item (pedido_item_id)
+    `);
+    console.log('Unique uq_oc_pedido_item criado.');
+  }
 
   console.log('Migração 017 concluída.');
 }

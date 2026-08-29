@@ -179,4 +179,119 @@ async function gerarRelatorioVeiculoExcel(dados) {
   return wb;
 }
 
+const fmtValorCelula = (tipo, valor) => {
+  if (valor === null || valor === undefined || valor === '') return '-';
+  const n = Number(valor);
+  switch (tipo) {
+    case 'moeda':
+    case 'percentual':
+      return isFinite(n) ? n : String(valor);
+    case 'numero':
+    case 'horas':
+    case 'dias':
+      return isFinite(n) ? n : String(valor);
+    case 'data':
+      return fmtDate(valor);
+    case 'datahora':
+      if (!valor) return '-';
+      {
+        const dt = new Date(valor);
+        return isNaN(dt.getTime()) ? String(valor) : dt.toLocaleString('pt-BR');
+      }
+    default:
+      return String(valor);
+  }
+};
+
+async function gerarRelatorioKpiExcel(dados) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Sistema de Pedidos';
+  wb.created = new Date();
+
+  const totalColunas = Math.max((dados.colunas || []).length, 4);
+  const letraFinal = String.fromCharCode(64 + totalColunas);
+
+  const ws = wb.addWorksheet('Relatorio KPI', {
+    properties: { defaultColWidth: 16 }
+  });
+
+  ws.mergeCells(`A1:${letraFinal}1`);
+  const titleCell = ws.getCell('A1');
+  titleCell.value = dados.titulo || 'Relatorio por Indicador (KPI)';
+  titleCell.font = { size: 16, bold: true, color: { argb: 'FF1A1D23' } };
+  titleCell.alignment = { horizontal: 'left', vertical: 'middle' };
+  ws.getRow(1).height = 30;
+
+  ws.mergeCells(`A2:${letraFinal}2`);
+  const kpiCell = ws.getCell('A2');
+  kpiCell.value = `${dados.kpi.label}  |  ${dados.periodoTexto}`;
+  kpiCell.font = { size: 11, bold: true, color: { argb: 'FF1A3D8F' } };
+  ws.getRow(2).height = 20;
+
+  ws.mergeCells(`A3:${letraFinal}3`);
+  const valorCell = ws.getCell('A3');
+  valorCell.value = `Valor do indicador: ${dados.valorFormatado}` +
+    (dados.variacao !== null && dados.variacao !== undefined
+      ? `  |  Variação vs. período anterior: ${dados.variacao > 0 ? '+' : ''}${String(dados.variacao).replace('.', ',')}%`
+      : '');
+  valorCell.font = { size: 12, bold: true, color: { argb: 'FF1A1D23' } };
+  valorCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F4FF' } };
+  valorCell.alignment = { vertical: 'middle' };
+  ws.getRow(3).height = 24;
+
+  ws.mergeCells(`A4:${letraFinal}4`);
+  const dateCell = ws.getCell('A4');
+  dateCell.value = `Gerado em: ${new Date(dados.geradoEm).toLocaleString('pt-BR')} por ${dados.geradoPor}`;
+  dateCell.font = { size: 9, color: { argb: 'FF888888' } };
+  ws.getRow(4).height = 18;
+
+  let currentRow = 6;
+
+  const headerRow = ws.getRow(currentRow);
+  (dados.colunas || []).forEach((col, i) => {
+    const cell = headerRow.getCell(i + 1);
+    cell.value = col.label;
+    cell.font = { size: 9, bold: true, color: { argb: 'FF555555' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F4FF' } };
+    cell.border = { bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } } };
+  });
+  headerRow.height = 20;
+  currentRow++;
+
+  for (const registro of (dados.registros || [])) {
+    const row = ws.getRow(currentRow);
+    (dados.colunas || []).forEach((col, i) => {
+      const cell = row.getCell(i + 1);
+      cell.value = fmtValorCelula(col.tipo, registro[col.key]);
+      cell.font = { size: 9 };
+      cell.border = { bottom: { style: 'thin', color: { argb: 'FFEEEEEE' } } };
+      if (col.tipo === 'moeda') {
+        cell.numFmt = '#,##0.00';
+        cell.alignment = { horizontal: 'right' };
+      } else if (col.tipo === 'percentual') {
+        cell.numFmt = '#,##0.0"%"';
+        cell.alignment = { horizontal: 'right' };
+      } else if (col.tipo === 'numero' || col.tipo === 'horas' || col.tipo === 'dias') {
+        cell.alignment = { horizontal: 'right' };
+      }
+    });
+    currentRow++;
+  }
+
+  if (!(dados.registros || []).length) {
+    ws.mergeCells(`A${currentRow}:${letraFinal}${currentRow}`);
+    const emptyCell = ws.getCell(`A${currentRow}`);
+    emptyCell.value = 'Nenhum registro encontrado para o período.';
+    emptyCell.font = { size: 9, italic: true, color: { argb: 'FF888888' } };
+    currentRow++;
+  }
+
+  (dados.colunas || []).forEach((col, i) => {
+    ws.getColumn(i + 1).width = col.tipo === 'moeda' ? 16 : col.tipo === 'texto' && col.label.length > 12 ? 28 : 16;
+  });
+
+  return wb;
+}
+
 module.exports = gerarRelatorioVeiculoExcel;
+module.exports.gerarRelatorioKpiExcel = gerarRelatorioKpiExcel;

@@ -388,21 +388,21 @@ body {
 
 .status-pendente { background: #fff3cd; color: #856404; }
 .status-em_compra { background: #cce5ff; color: #004085; }
-.status-aguardando_aprovacao { background: #f8d7da; color: #721c24; }
+.status-aguardando_aprovacao { background: #ede9fe; color: #6b21a8; }
 .status-novo_orcamento { background: #ffe8cc; color: #8a4b00; }
 .status-aprovado { background: #d4edda; color: #155724; }
 .status-rejeitado { background: #f8d7da; color: #721c24; }
-.status-comprado { background: #d1ecf1; color: #0c5460; }
-.status-concluido { background: #d4edda; color: #155724; }
+.status-comprado { background: #ccfbf1; color: #115e59; }
+.status-concluido { background: #e0e7ff; color: #3730a3; }
 
-[data-bs-theme="dark"] .status-pendente { background: #5a4a1a; color: #ffc107; }
-[data-bs-theme="dark"] .status-em_compra { background: #1a3a5a; color: #6ea8fe; }
-[data-bs-theme="dark"] .status-aguardando_aprovacao { background: #5a1a1a; color: #f87171; }
-[data-bs-theme="dark"] .status-novo_orcamento { background: #5a3a1a; color: #fbbf24; }
+[data-bs-theme="dark"] .status-pendente { background: #4a3b10; color: #ffd43b; }
+[data-bs-theme="dark"] .status-em_compra { background: #16305a; color: #74c0fc; }
+[data-bs-theme="dark"] .status-aguardando_aprovacao { background: #35205c; color: #b197fc; }
+[data-bs-theme="dark"] .status-novo_orcamento { background: #4a2c10; color: #ffa94d; }
 [data-bs-theme="dark"] .status-aprovado { background: #1a3a1a; color: #6dd64d; }
 [data-bs-theme="dark"] .status-rejeitado { background: #5a1a1a; color: #f87171; }
-[data-bs-theme="dark"] .status-comprado { background: #1a3a3a; color: #5bc0de; }
-[data-bs-theme="dark"] .status-concluido { background: #1a3a1a; color: #6dd64d; }
+[data-bs-theme="dark"] .status-comprado { background: #0f3a35; color: #63e6be; }
+[data-bs-theme="dark"] .status-concluido { background: #232559; color: #91a7ff; }
 
 /* ===== URGENT ORDERS ===== */
 tr.order-urgent td {

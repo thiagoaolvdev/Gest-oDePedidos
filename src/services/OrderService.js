@@ -8,6 +8,8 @@ const authConfig = require('../config/auth');
 const logger = require('../utils/logger');
 const { sanitizePayload, sanitizeText } = require('../utils/sanitize');
 
+const DUPLICIDADE_JANELA_HORAS = Number(process.env.DUPLICIDADE_JANELA_HORAS) || 48;
+
 class OrderService {
   constructor() {
     this.repo = new OrderRepository();
@@ -34,10 +36,50 @@ class OrderService {
     return order;
   }
 
+  async verificarDuplicidade(veiculoId, itens) {
+    const pecaIds = [...new Set(
+      (itens || [])
+        .map(i => Number(i.peca_id))
+        .filter(id => id)
+    )];
+    if (!veiculoId || !pecaIds.length) return [];
+
+    const db = require('../config/database');
+    const placeholders = pecaIds.map(() => '?').join(', ');
+    const [rows] = await db.query(`
+      SELECT DISTINCT pi.peca_id, pe.nome AS peca_nome, p.id, p.numero, p.data_pedido, u.nome AS solicitante_nome
+      FROM pedido_itens pi
+      JOIN pedidos p ON p.id = pi.pedido_id
+      JOIN usuarios u ON u.id = p.usuario_id
+      JOIN pecas pe ON pe.id = pi.peca_id
+      WHERE pi.peca_id IN (${placeholders})
+        AND p.veiculo_id = ?
+        AND p.status NOT IN ('rejeitado')
+        AND TIMESTAMPDIFF(HOUR, p.data_pedido, NOW()) <= ?
+      ORDER BY p.data_pedido DESC
+    `, [...pecaIds, veiculoId, DUPLICIDADE_JANELA_HORAS]);
+
+    return rows.map(r => ({
+      pedido_id: r.id,
+      numero: r.numero,
+      data_pedido: r.data_pedido,
+      solicitante_nome: r.solicitante_nome,
+      peca_id: r.peca_id,
+      peca_nome: r.peca_nome
+    }));
+  }
+
   async create(data, userId, perfil = null, ip) {
     const safeData = sanitizePayload(data, ['observacoes', 'mecanico_nome', 'previsao_entrega']);
     const numero = generateOrderNumber();
     let valorTotal = 0;
+
+    const conflitos = await this.verificarDuplicidade(safeData.veiculo_id, safeData.itens);
+    if (conflitos.length && data.confirmarDuplicidade !== true) {
+      logger.info(`Possível duplicidade detectada para o veículo ${safeData.veiculo_id} (${conflitos.length} conflito(s))`);
+      return { duplicidadeDetectada: true, conflitos };
+    }
+    const duplicidadeIgnorada = conflitos.length > 0;
 
     let destinatarioId = null;
     let destinatarioNome = null;
@@ -60,7 +102,9 @@ class OrderService {
       mecanico_nome: safeData.mecanico_nome || null,
       status: 'pendente',
       observacoes: safeData.observacoes || null,
-      valor_total: 0
+      valor_total: 0,
+      duplicidade_ignorada: duplicidadeIgnorada,
+      triagem: safeData.triagem || null
     };
 
     const result = await this.repo.create(orderData);
@@ -86,6 +130,13 @@ class OrderService {
     await this.repo.updateStatus(orderId, status, { valor_total: valorTotal });
     await this._registrarHistorico(orderId, userId, status, 'Pedido criado');
 
+    if (duplicidadeIgnorada) {
+      const detalhe = conflitos
+        .map(c => `${c.peca_nome} já pedida no pedido ${c.numero} por ${c.solicitante_nome}`)
+        .join('; ');
+      await this._registrarHistorico(orderId, userId, status, `Pedido criado mesmo após aviso de duplicidade (${detalhe}).`);
+    }
+
     if (destinatarioId) {
       await this._registrarHistorico(orderId, userId, status, `Pedido enviado para ${destinatarioNome} confirmar a compra.`);
       await this.notifRepo.create({
@@ -97,8 +148,8 @@ class OrderService {
       });
     }
 
-    await registerAudit({ userId, action: 'create', entity: 'pedidos', entityId: orderId, newValues: { numero, valor_total: valorTotal }, ip });
-    logger.info(`Pedido criado: ${numero} - R$ ${valorTotal}`);
+    await registerAudit({ userId, action: 'create', entity: 'pedidos', entityId: orderId, newValues: { numero, valor_total: valorTotal, duplicidade_ignorada: duplicidadeIgnorada }, ip });
+    logger.info(`Pedido criado: ${numero} - R$ ${valorTotal}${duplicidadeIgnorada ? ' (duplicidade confirmada pelo usuário)' : ''}`);
 
     return this.repo.findFullById(orderId);
   }
@@ -122,6 +173,7 @@ class OrderService {
     if (safeData.mecanico_nome !== undefined) updateData.mecanico_nome = safeData.mecanico_nome;
     if (safeData.mecanico_id !== undefined) updateData.mecanico_id = safeData.mecanico_id;
     if (safeData.previsao_entrega !== undefined) updateData.previsao_entrega = safeData.previsao_entrega;
+    if (safeData.triagem !== undefined) updateData.triagem = safeData.triagem;
 
     let temCotacao = false;
     const podeDefinirPreco = perfil === 'logistica';
@@ -259,6 +311,19 @@ class OrderService {
 
     const oldStatusEntrega = order.status_entrega;
     await this.repo.updateEntrega(id, status_entrega);
+
+    if (status_entrega === 'chegou' && oldStatusEntrega !== 'chegou') {
+      try {
+        await this.repo.marcarDataEntregaReal(id);
+      } catch (err) {
+        if (err.code === 'ER_BAD_FIELD_ERROR') {
+          logger.warn(`Pedido ${order.numero}: coluna data_entrega_real inexistente (executar migração 019)`);
+        } else {
+          throw err;
+        }
+      }
+    }
+
     await this._registrarHistorico(id, userId, `entrega_${status_entrega}`, `Entrega atualizada para "${status_entrega}"`);
 
     if (status_entrega === 'chegou' && oldStatusEntrega !== 'chegou' && order.status === 'comprado') {
@@ -321,8 +386,8 @@ class OrderService {
   async reject(id, userId, perfil, data, ip) {
     const order = await this.repo.findById(id);
     if (!order) throw { statusCode: 404, message: 'Pedido não encontrado' };
-    if (order.status !== 'aguardando_aprovacao') {
-      throw { statusCode: 400, message: 'Pedido não está aguardando aprovação' };
+    if (['concluido', 'rejeitado'].includes(order.status)) {
+      throw { statusCode: 400, message: 'Pedido já finalizado ou cancelado' };
     }
 
     if (Number(order.valor_total) > authConfig.directorApprovalLimit && perfil !== 'diretor') {

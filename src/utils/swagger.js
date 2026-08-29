@@ -5,7 +5,7 @@ const options = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'Prime Tech - API',
+      title: 'Pedix - API',
       version: '1.0.0',
       description: 'API para gerenciamento de pedidos de peças'
     },

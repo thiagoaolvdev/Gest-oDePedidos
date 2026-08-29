@@ -30,7 +30,7 @@ const pdf = async (req, res, next) => {
     res.render('ordem-compra', {
       ordens,
       empresa: {
-        nome: 'Prime Tech',
+        nome: 'Pedix',
         linhas: [
           'Matriz: Rua ...',
           'Filial: Rua ...',

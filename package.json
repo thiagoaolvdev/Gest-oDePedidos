@@ -1,5 +1,5 @@
 {
-  "name": "chemarauto-veiculos",
+  "name": "pedix-veiculos",
   "version": "1.0.0",
   "description": "Sistema de gerenciamento de pedidos de peças para veículos seminovos",
   "main": "server.js",

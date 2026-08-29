@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= kpi.label %> — Relatório</title>
+  <style>
+    :root {
+      --ink: #1f2937;
+      --muted: #6b7280;
+      --line: #d1d5db;
+      --brand: #0b2545;
+      --accent: #f59e0b;
+      --paper: #fff;
+      --bg: #f3f4f6;
+    }
+    @page { size: A4; margin: 12mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .sheet {
+      background: var(--paper);
+      max-width: 210mm;
+      margin: 0 auto;
+      padding: 14mm 14mm 24mm;
+      min-height: calc(297mm - 24mm);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+    .sheet-body { flex: 1; }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--brand);
+      margin-bottom: 16px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark {
+      width: 54px;
+      height: 54px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, var(--brand), #123b68);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      font-size: 18px;
+      letter-spacing: 1px;
+    }
+    .brand-name { font-weight: 800; font-size: 15px; color: var(--brand); letter-spacing: .03em; }
+    .brand-sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+    .title-block { text-align: right; }
+    .doc-title {
+      font-size: 21px;
+      font-weight: 800;
+      color: var(--brand);
+      letter-spacing: .05em;
+    }
+    .doc-meta {
+      margin-top: 4px;
+      font-size: 10px;
+      color: var(--muted);
+      font-weight: 600;
+      letter-spacing: .02em;
+    }
+    .destaque {
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--accent);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .destaque-label {
+      text-transform: uppercase;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .05em;
+      color: var(--muted);
+    }
+    .destaque-nome { font-size: 15px; font-weight: 800; color: var(--brand); margin-top: 3px; }
+    .destaque-valor { font-size: 30px; font-weight: 800; color: var(--brand); white-space: nowrap; }
+    .variacao { font-size: 12px; font-weight: 700; margin-top: 4px; }
+    .variacao.alta { color: #b45309; }
+    .variacao.baixa { color: #15803d; }
+    .section {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+    .section-title {
+      background: #f9fafb;
+      color: var(--brand);
+      font-weight: 700;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--line);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      font-size: 11px;
+    }
+    table.dados {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+    table.dados th {
+      background: #f0f4ff;
+      color: #374151;
+      text-align: left;
+      padding: 7px 9px;
+      border-bottom: 1px solid var(--line);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      white-space: nowrap;
+    }
+    table.dados td {
+      padding: 6px 9px;
+      border-bottom: 1px solid #eef0f3;
+      vertical-align: top;
+      word-break: break-word;
+    }
+    table.dados tbody tr:nth-child(even) { background: #f8fafc; }
+    table.dados td.num, table.dados th.num { text-align: right; white-space: nowrap; }
+    .vazio { padding: 18px 10px; text-align: center; color: var(--muted); font-style: italic; }
+    .rodape-info {
+      margin-top: 14px;
+      font-size: 10px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .footer {
+      border-top: 1px solid var(--line);
+      margin-top: 16px;
+      padding-top: 8px;
+      font-size: 10px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+    }
+    @media print {
+      body { background: var(--paper); }
+      .sheet { margin: 0; padding: 0; min-height: auto; max-width: none; }
+      .no-print { display: none !important; }
+    }
+    .no-print { text-align: center; margin-bottom: 14px; }
+    .btn-imprimir {
+      background: var(--brand);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 22px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="no-print">
+      <button class="btn-imprimir" onclick="window.print()">Imprimir / Salvar em PDF</button>
+    </div>
+
+    <div class="header">
+      <div class="brand">
+        <div class="brand-mark">CA</div>
+        <div>
+          <div class="brand-name"><%= empresa %></div>
+          <div class="brand-sub">Sistema de Gerenciamento de Pedidos de Peças</div>
+        </div>
+      </div>
+      <div class="title-block">
+        <div class="doc-title"><%= titulo.toUpperCase() %></div>
+        <div class="doc-meta">Período: <%= periodoTexto %></div>
+        <% if (sem_periodo) { %>
+          <div class="doc-meta">Situação atual do sistema</div>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="sheet-body">
+      <div class="destaque">
+        <div>
+          <div class="destaque-label">Indicador</div>
+          <div class="destaque-nome"><%= kpi.label %></div>
+        </div>
+        <div style="text-align:right;">
+          <div class="destaque-label">Valor</div>
+          <div class="destaque-valor"><%= valorFormatado %></div>
+          <% if (typeof variacao === 'number' && !isNaN(variacao)) { %>
+            <% if (variacao > 0) { %>
+              <div class="variacao alta">&#8593; <%= String(variacao).replace('.', ',') %>% vs. período anterior</div>
+            <% } else { %>
+              <div class="variacao baixa">&#8595; <%= String(Math.abs(variacao)).replace('.', ',') %>% vs. período anterior</div>
+            <% } %>
+          <% } else { %>
+            <div class="variacao baixa">Sem comparação com período anterior</div>
+          <% } %>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Detalhamento dos registros</div>
+        <% if (!registros.length) { %>
+          <div class="vazio">Nenhum registro encontrado para o período selecionado.</div>
+        <% } else { %>
+          <table class="dados">
+            <thead>
+              <tr>
+                <% colunas.forEach(function (col) { %>
+                  <th class="<%= ['moeda','numero','percentual','horas','dias'].indexOf(col.tipo) !== -1 ? 'num' : '' %>"><%= col.label %></th>
+                <% }); %>
+              </tr>
+            </thead>
+            <tbody>
+              <% registros.forEach(function (reg) {
+                   const tiposNum = ['moeda','numero','percentual','horas','dias'];
+               %>
+                <tr>
+                  <% colunas.forEach(function (col) {
+                       const bruto = reg[col.key];
+                       let texto = '-';
+                       if (bruto !== null && bruto !== undefined && bruto !== '') {
+                         const n = Number(bruto);
+                         switch (col.tipo) {
+                           case 'moeda':
+                             texto = n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                             break;
+                           case 'percentual':
+                             texto = n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+                             break;
+                           case 'numero':
+                             texto = n.toLocaleString('pt-BR');
+                             break;
+                           case 'horas': {
+                             const h = Math.round(n);
+                             if (!isFinite(h) || h <= 0) { texto = '0h'; }
+                             else {
+                               const d = Math.floor(h / 24); const r = h % 24;
+                               texto = d > 0 ? d + 'd ' + r + 'h' : h + 'h';
+                             }
+                             break;
+                           }
+                           case 'dias':
+                             texto = n.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' dias';
+                             break;
+                           case 'data': {
+                             const dt = new Date(bruto);
+                             texto = isNaN(dt.getTime()) ? String(bruto) : dt.toLocaleDateString('pt-BR');
+                             break;
+                           }
+                           case 'datahora': {
+                             const dt = new Date(bruto);
+                             texto = isNaN(dt.getTime()) ? String(bruto)
+                               : dt.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                             break;
+                           }
+                           default:
+                             texto = String(bruto);
+                         }
+                       }
+                  %>
+                    <td class="<%= tiposNum.indexOf(col.tipo) !== -1 ? 'num' : '' %>"><%= texto %></td>
+                  <% }); %>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        <% } %>
+      </div>
+
+      <div class="rodape-info">
+        <span>Registros listados: <%= registros.length %></span>
+        <span>Gerado por: <%= geradoPor %></span>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span><%= empresa %> — Relatório gerado automaticamente pelo sistema</span>
+      <span>Gerado em <%= new Date(geradoEm).toLocaleString('pt-BR') %></span>
+    </div>
+  </div>
+
+  <script>
+    window.addEventListener('load', function () { setTimeout(window.print, 300); });
+  </script>
+</body>
+</html>

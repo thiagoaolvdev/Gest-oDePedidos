@@ -94,14 +94,13 @@ class OrderRepository {
       where.push('(p.destinatario_id IS NULL OR p.destinatario_id = ? OR p.usuario_id = ?)');
       params.push(requestingUserId, requestingUserId);
     }
-    const urgenteCond = `(p.status IN ('pendente', 'em_compra', 'novo_orcamento')
-      AND p.ultima_atualizacao < DATE_SUB(NOW(), INTERVAL 48 HOUR))`;
     const temFiltroData = !!(filters.data_inicio || filters.data_fim);
     if (filters.urgente === '1') {
-      where.push(urgenteCond);
+      where.push("p.triagem IS NOT NULL AND p.status = 'pendente'");
     } else if (!temFiltroData) {
-      where.push(`NOT ${urgenteCond}`);
+      where.push("NOT (p.triagem IS NOT NULL AND p.status = 'pendente')");
     }
+    if (filters.triagem) { where.push('p.triagem = ?'); params.push(filters.triagem); }
 
     const whereStr = where.join(' AND ');
 
@@ -160,8 +159,8 @@ class OrderRepository {
 
   async create(data) {
     const [result] = await db.query(
-      'INSERT INTO pedidos (numero, veiculo_id, usuario_id, destinatario_id, mecanico_id, mecanico_nome, status, observacoes, valor_total, previsao_entrega) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [data.numero, data.veiculo_id, data.usuario_id, data.destinatario_id || null, data.mecanico_id || null, data.mecanico_nome || null, data.status || 'pendente', data.observacoes || null, data.valor_total || 0, data.previsao_entrega || null]
+      'INSERT INTO pedidos (numero, veiculo_id, usuario_id, destinatario_id, mecanico_id, mecanico_nome, status, observacoes, valor_total, previsao_entrega, duplicidade_ignorada, triagem) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [data.numero, data.veiculo_id, data.usuario_id, data.destinatario_id || null, data.mecanico_id || null, data.mecanico_nome || null, data.status || 'pendente', data.observacoes || null, data.valor_total || 0, data.previsao_entrega || null, data.duplicidade_ignorada ? 1 : 0, data.triagem || null]
     );
     return { id: result.insertId, ...data };
   }
@@ -170,10 +169,19 @@ class OrderRepository {
     await db.query('UPDATE pedidos SET status_entrega = ?, ultima_atualizacao = NOW() WHERE id = ?', [statusEntrega, id]);
   }
 
+  async marcarDataEntregaReal(id) {
+    await db.query('UPDATE pedidos SET data_entrega_real = COALESCE(data_entrega_real, NOW()) WHERE id = ?', [id]);
+  }
+
+  async contarComEntregaReal() {
+    const [rows] = await db.query('SELECT COUNT(*) as total FROM pedidos WHERE data_entrega_real IS NOT NULL');
+    return rows[0].total;
+  }
+
   async update(id, data) {
     const fields = [];
     const params = [];
-    for (const key of ['veiculo_id', 'mecanico_id', 'mecanico_nome', 'observacoes', 'valor_total', 'previsao_entrega', 'status']) {
+    for (const key of ['veiculo_id', 'mecanico_id', 'mecanico_nome', 'observacoes', 'valor_total', 'previsao_entrega', 'status', 'triagem']) {
       if (data[key] !== undefined) {
         fields.push(`${key} = ?`);
         params.push(data[key]);

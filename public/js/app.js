@@ -1,7 +1,5 @@
 let user = null;
-let charts = {};
 let currentPage = 'dashboard';
-let dashDias = 0;
 
 const ROLE_INFO = {
   mecanico: { label: 'Mecânico', icon: 'bi-wrench', color: 'secondary', desc: 'Execução dos serviços nos veículos' },
@@ -144,7 +142,7 @@ function navigate(page) {
   });
   const titles = {
     dashboard: 'Dashboard', vehicles: 'Veículos', marcas: 'Marcas', modelos: 'Modelos', parts: 'Peças',
-    orders: 'Pedidos', orders_urgentes: 'Urgentes', orders_pendente: 'Pendentes', orders_aprovado: 'Aprovados', orders_aguardando_aprovacao: 'Aguardando Aprovação', orders_comprado: 'Comprados',
+    orders: 'Pedidos', urgentes: 'Pedidos Urgentes', orders_urgentes: 'Atenção', orders_pendente: 'Pendentes', orders_aprovado: 'Aprovados', orders_aguardando_aprovacao: 'Aguardando Aprovação', orders_comprado: 'Comprados',
     entregas_chegou: 'Entregues',
     users: 'Usuários', audit: 'Auditoria',
     fornecedores: 'Fornecedores', profile: 'Meu Perfil'
@@ -161,7 +159,7 @@ function navigate(page) {
 function getPageIcon(page) {
   const icons = {
     dashboard: 'bi-speedometer2', vehicles: 'bi-truck', marcas: 'bi-bookmark', modelos: 'bi-diagram-3', parts: 'bi-gear',
-    orders: 'bi-clipboard-check', orders_urgentes: 'bi-alarm', orders_pendente: 'bi-clock', orders_aprovado: 'bi-check-circle', orders_aguardando_aprovacao: 'bi-hourglass-split', orders_comprado: 'bi-cart-check',
+    orders: 'bi-clipboard-check', urgentes: 'bi-alarm', orders_urgentes: 'bi-alarm', orders_pendente: 'bi-clock', orders_aprovado: 'bi-check-circle', orders_aguardando_aprovacao: 'bi-hourglass-split', orders_comprado: 'bi-cart-check',
     entregas_chegou: 'bi-truck',
     users: 'bi-people', audit: 'bi-journal-text',
     fornecedores: 'bi-shop', profile: 'bi-person-circle'
@@ -267,13 +265,32 @@ function entregaBadge(s) {
   const lbl = { pendente: 'Pendente', em_transito: 'Em Trânsito', chegou: 'Chegou' }[s] || 'Pendente';
   return `<span class="status-badge ${cls}">${lbl}</span>`;
 }
+function triagemBadge(t) {
+  const map = {
+    urgente: { cls: 'text-bg-danger', lbl: 'Urgente', icon: 'bi-exclamation-triangle' },
+    carro_vendido: { cls: 'text-bg-primary', lbl: 'Carro vendido', icon: 'bi-cash-coin' },
+    carro_estoque: { cls: 'text-bg-secondary', lbl: 'Carro estoque', icon: 'bi-box-seam' }
+  };
+  const conf = map[t];
+  if (!conf) return '';
+  return ` <span class="badge rounded-pill ${conf.cls} triagem-badge" title="Triagem: ${escapeHtml(conf.lbl)}"><i class="bi ${conf.icon} me-1"></i>${conf.lbl}</span>`;
+}
 function renderOrderNumero(o) {
   const horas = o.horas_sem_resposta || 0;
   const destBadge = o.destinatario_id ? ` <span class="badge rounded-pill text-bg-info" title="Enviado para: ${escapeHtml(o.destinatario_nome || '')}"><i class="bi bi-send me-1"></i>${escapeHtml(o.destinatario_nome || '---')}</span>` : '';
-  if (!o.urgente) return `<strong>${o.numero}</strong>${destBadge}`;
-  return `<strong class="text-danger">${o.numero}</strong> <span class="badge rounded-pill text-bg-danger urgente-badge" title="Sem resposta há ${horas} horas"><i class="bi bi-exclamation-triangle me-1"></i>${horas}h sem resposta</span>${destBadge}`;
+  const dupBadge = o.duplicidade_ignorada ? ` <span class="badge rounded-pill text-bg-warning" title="Criado mesmo após aviso de possível duplicidade"><i class="bi bi-exclamation-triangle me-1"></i>Duplicidade confirmada</span>` : '';
+  const triBadge = triagemBadge(o.triagem);
+  if (!o.urgente) return `<strong>${o.numero}</strong>${triBadge}${destBadge}${dupBadge}`;
+  return `<strong class="text-danger">${o.numero}</strong> <span class="badge rounded-pill text-bg-danger urgente-badge" title="Sem resposta há ${horas} horas"><i class="bi bi-exclamation-triangle me-1"></i>${horas}h sem resposta</span>${triBadge}${destBadge}${dupBadge}`;
 }
 function renderOrderRowClass(o) { return o.urgente ? ' class="order-urgent"' : ''; }
+function calcularUrgenciaPedido(o) {
+  if (!o || !['pendente', 'em_compra', 'novo_orcamento'].includes(o.status)) return { urgente: false, horas: 0 };
+  const ts = o.ultima_atualizacao ? new Date(o.ultima_atualizacao).getTime() : null;
+  if (!ts) return { urgente: false, horas: 0 };
+  const horas = Math.max(0, Math.floor((Date.now() - ts) / 3600000));
+  return { urgente: horas >= 48, horas };
+}
 function nextStatuses(current, perfil) {
   const flow = ['pendente', 'em_compra', 'aguardando_aprovacao', 'novo_orcamento', 'aprovado', 'comprado', 'concluido'];
   const idx = flow.indexOf(current);
@@ -654,190 +671,555 @@ async function openNotif(id, pedidoId) {
 // ===== PAGE RENDERERS =====
 const PAGES = {};
 
-function kpiCards(k, t) {
-  k = k || {};
-  t = t || {};
+// ---------- INDICADORES (KPIS) ----------
+let kpiPeriodo = null;
+let KPI_LISTA = [];
+const KPI_TIPOS_NUM = ['moeda', 'numero', 'percentual', 'horas', 'dias'];
+
+function kpiIndicadoresSectionHtml() {
   return `
-    <div class="kpi-card kpi-warning">
-      <div class="kpi-icon" style="background:rgba(243,156,18,0.12);color:var(--warning)">
-        <i class="fa-solid fa-clock"></i>
-      </div>
-      <div class="kpi-content">
-        <div class="kpi-label"><i class="fa-solid fa-spinner me-1"></i>Pedidos Pendentes</div>
-        <div class="kpi-value">${k.pedidos_pendentes ?? 0}</div>
-        <div class="kpi-footer">
-          <span class="kpi-sub"><i class="fa-solid fa-hourglass me-1"></i>Aguardando andamento</span>
+    <div id="kpiIndicadoresSection" class="vehicle-report-section">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+        <h3 style="font-size:15px;font-weight:700;margin:0;"><i class="fa-solid fa-chart-line me-2" style="color:var(--accent)"></i>Indicadores de Desempenho</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <span id="kpiPeriodoLabel" class="badge bg-light text-dark border" style="font-weight:600;">Todo o período</span>
+          <button class="btn btn-outline-primary btn-sm" onclick="abrirSeletorPeriodoKpi()" style="border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+            <i class="fa-solid fa-calendar-days"></i> Período
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" onclick="carregarKpis()" title="Atualizar indicadores" style="border-radius:8px;display:inline-flex;align-items:center;gap:6px;">
+            <i class="fa-solid fa-arrows-rotate"></i>
+          </button>
         </div>
       </div>
-    </div>
-    <div class="kpi-card kpi-primary">
-      <div class="kpi-icon" style="background:rgba(11,37,69,0.1);color:var(--text)">
-        <i class="fa-solid fa-hourglass-half"></i>
-      </div>
-      <div class="kpi-content">
-        <div class="kpi-label"><i class="fa-solid fa-hourglass-split me-1"></i>Aguardando Aprovação</div>
-        <div class="kpi-value">${k.pedidos_aguardando_aprovacao ?? 0}</div>
-        <div class="kpi-footer">
-          <span class="kpi-sub"><i class="fa-solid fa-user-tie me-1"></i>Análise da diretoria</span>
-        </div>
-      </div>
-    </div>
-    <div class="kpi-card kpi-success">
-      <div class="kpi-icon" style="background:rgba(46,204,113,0.12);color:var(--success)">
-        <i class="fa-solid fa-cart-shopping"></i>
-      </div>
-      <div class="kpi-content">
-        <div class="kpi-label"><i class="fa-solid fa-cart-shopping me-1"></i>Pedidos Comprados</div>
-        <div class="kpi-value">${k.pedidos_comprados ?? 0}</div>
-        <div class="kpi-footer">
-          <span class="kpi-sub"><i class="fa-solid fa-check me-1"></i>Compras realizadas</span>
-        </div>
-      </div>
-    </div>
-    <div class="kpi-card kpi-info">
-      <div class="kpi-icon" style="background:rgba(52,152,219,0.12);color:var(--info)">
-        <i class="fa-solid fa-truck-fast"></i>
-      </div>
-      <div class="kpi-content">
-        <div class="kpi-label"><i class="fa-solid fa-truck me-1"></i>Pedidos Chegados</div>
-        <div class="kpi-value">${k.pedidos_chegados ?? 0}</div>
-        <div class="kpi-footer">
-          <span class="kpi-sub"><i class="fa-solid fa-box-open me-1"></i>Entrega concluída</span>
-        </div>
-      </div>
-    </div>
-    <div class="kpi-card kpi-danger">
-      <div class="kpi-icon" style="background:rgba(231,76,60,0.12);color:#e74c3c">
-        <i class="fa-solid fa-dollar-sign"></i>
-      </div>
-      <div class="kpi-content">
-        <div class="kpi-label"><i class="fa-solid fa-coins me-1"></i>Total de Valores Gastos</div>
-        <div class="kpi-value">${fmtCurrency(k.total_valores_aprovados)}</div>
-        <div class="kpi-footer">
-          <span class="kpi-sub"><i class="fa-solid fa-circle-check me-1"></i>Soma dos valores aprovados</span>
-        </div>
-      </div>
-    </div>
-    <div class="kpi-card kpi-info">
-      <div class="kpi-icon" style="background:rgba(52,152,219,0.12);color:var(--info)">
-        <i class="fa-solid fa-stopwatch"></i>
-      </div>
-      <div class="kpi-content">
-        <div class="kpi-label"><i class="fa-solid fa-bolt me-1"></i>Tempo Médio de Resposta</div>
-        <div class="kpi-value">${fmtTempoMedio(t.media_horas)}</div>
-        <div class="kpi-footer">
-          <span class="kpi-sub"><i class="fa-solid fa-check me-1"></i>${t.total_respondidos ?? 0} pedido(s) respondidos</span>
-        </div>
+      <div class="kpi-grid kpi-grid-indicadores" id="kpiGrid">
+        <div class="dash-loading" style="grid-column:1/-1;"><div class="spinner"></div><span>Calculando indicadores...</span></div>
       </div>
     </div>`;
 }
 
-function kpiCardsDiretor(k, t) {
-  k = k || {};
-  t = t || {};
-  return `
-    <div class="kpi-card kpi-warning">
-      <div class="kpi-icon" style="background:rgba(243,156,18,0.12);color:var(--warning)">
-        <i class="fa-solid fa-clock"></i>
-      </div>
-      <div class="kpi-content">
-        <div class="kpi-label"><i class="fa-solid fa-spinner me-1"></i>Pedidos Pendentes</div>
-        <div class="kpi-value">${k.pedidos_pendentes ?? 0}</div>
-        <div class="kpi-footer">
-          <span class="kpi-sub"><i class="fa-solid fa-hourglass me-1"></i>Aguardando andamento</span>
-        </div>
-      </div>
-    </div>
-    <div class="kpi-card kpi-danger">
-      <div class="kpi-icon" style="background:rgba(231,76,60,0.12);color:#e74c3c">
-        <i class="fa-solid fa-bell"></i>
-      </div>
-      <div class="kpi-content">
-        <div class="kpi-label"><i class="fa-solid fa-bell me-1"></i>Pedidos Urgentes</div>
-        <div class="kpi-value">${k.pedidos_urgentes ?? 0}</div>
-        <div class="kpi-footer">
-          <span class="kpi-sub"><i class="fa-solid fa-clock me-1"></i>+48h sem atualização</span>
-        </div>
-      </div>
-    </div>
-    <div class="kpi-card kpi-success">
-      <div class="kpi-icon" style="background:rgba(46,204,113,0.12);color:var(--success)">
-        <i class="fa-solid fa-circle-check"></i>
-      </div>
-      <div class="kpi-content">
-        <div class="kpi-label"><i class="fa-solid fa-check me-1"></i>Pedidos Aprovados</div>
-        <div class="kpi-value">${k.pedidos_aprovados ?? 0}</div>
-        <div class="kpi-footer">
-          <span class="kpi-sub"><i class="fa-solid fa-check-double me-1"></i>Aprovados pela diretoria</span>
-        </div>
-      </div>
-    </div>
-    <div class="kpi-card kpi-info">
-      <div class="kpi-icon" style="background:rgba(52,152,219,0.12);color:var(--info)">
-        <i class="fa-solid fa-stopwatch"></i>
-      </div>
-      <div class="kpi-content">
-        <div class="kpi-label"><i class="fa-solid fa-bolt me-1"></i>Tempo Médio de Resposta</div>
-        <div class="kpi-value">${fmtTempoMedio(t.media_horas)}</div>
-        <div class="kpi-footer">
-          <span class="kpi-sub"><i class="fa-solid fa-check me-1"></i>${t.total_respondidos ?? 0} pedido(s) respondidos</span>
-        </div>
-      </div>
-    </div>`;
+function kpiFmtValor(unidade, valor) {
+  if (valor === null || valor === undefined || valor === '') return '-';
+  const n = Number(valor);
+  if (!isFinite(n)) return escapeHtml(String(valor));
+  switch (unidade) {
+    case 'moeda': return fmtCurrency(n);
+    case 'percentual': return n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+    case 'horas': return fmtTempoMedio(n);
+    case 'dias': return `${n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} ${n === 1 ? 'dia' : 'dias'}`;
+    default: return n.toLocaleString('pt-BR');
+  }
 }
 
-// ---------- DASHBOARD PERIOD FILTER ----------
-const DASH_PERIODOS = [
-  { dias: 0, label: 'Todos' },
-  { dias: 7, label: '7 dias' },
-  { dias: 15, label: '15 dias' },
-  { dias: 30, label: '30 dias' },
-  { dias: 60, label: '60 dias' },
-  { dias: 90, label: '90 dias' }
-];
-
-function dashFilterBar(active) {
-  return `
-    <div class="dash-filter-bar">
-      <span class="dash-filter-label"><i class="fa-solid fa-calendar-days me-1"></i>Período:</span>
-      ${DASH_PERIODOS.map(p => `
-        <button class="dash-filter-btn ${p.dias === active ? 'active' : ''}" data-dias="${p.dias}" onclick="setDashFilter(${p.dias})">${p.label}</button>`).join('')}
-    </div>`;
+function kpiFmtCelula(tipo, valor) {
+  if (valor === null || valor === undefined || valor === '') return '-';
+  const n = Number(valor);
+  switch (tipo) {
+    case 'moeda': return isFinite(n) ? fmtCurrency(n) : escapeHtml(String(valor));
+    case 'percentual': return isFinite(n) ? n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%' : escapeHtml(String(valor));
+    case 'horas': return fmtTempoMedio(n);
+    case 'dias': return isFinite(n) ? `${n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} dias` : escapeHtml(String(valor));
+    case 'numero': return isFinite(n) ? n.toLocaleString('pt-BR') : escapeHtml(String(valor));
+    case 'data': return fmtDate(valor);
+    case 'datahora': return fmtDateTime(valor);
+    default: return escapeHtml(String(valor));
+  }
 }
 
-function setDashFilter(dias) {
-  dashDias = dias || 0;
-  PAGES.dashboard(dashDias);
+function kpiVariacaoBadge(k) {
+  if (k.sem_periodo) return '';
+  if (k.variacao === null || k.variacao === undefined || !isFinite(k.variacao)) return '';
+  const subiu = k.variacao > 0;
+  const seta = subiu ? 'bi-arrow-up-short' : 'bi-arrow-down-short';
+  let cls = 'neutro';
+  let titulo = 'Variação vs. período anterior';
+  if (k.direcao === 'queda_boa') {
+    cls = subiu ? 'ruim' : 'bom';
+    titulo += subiu ? ' (alta desfavorável)' : ' (queda favorável)';
+  } else if (k.direcao === 'alta_boa') {
+    cls = subiu ? 'bom' : 'ruim';
+    titulo += subiu ? ' (alta favorável)' : ' (queda desfavorável)';
+  }
+  const txt = `${subiu ? '+' : ''}${Math.abs(k.variacao).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
+  return `<span class="kpi-variacao ${cls}" title="${titulo}"><i class="bi ${seta}"></i>${txt}</span>`;
+}
+
+const KPI_ICONES = {
+  gasto_por_veiculo: 'fa-solid fa-truck',
+  ticket_medio: 'fa-solid fa-receipt',
+  desvio_preco: 'fa-solid fa-tags',
+  tempo_aprovacao: 'fa-solid fa-hourglass-half',
+  pedidos_parados: 'fa-solid fa-clock-rotate-left',
+  taxa_rejeicao: 'fa-solid fa-circle-xmark',
+  lead_time_fornecedor: 'fa-solid fa-truck-fast',
+  concentracao_fornecedor: 'fa-solid fa-warehouse',
+  solicitantes_ativos: 'fa-solid fa-users',
+  taxa_duplicidade: 'fa-solid fa-clone'
+};
+
+/* Mesma semântica de cor e tons exatos dos 6 cards de referência do dashboard:
+   laranja=atenção (kpi-warning), vermelho=crítico (kpi-danger), azul=neutro (kpi-info), verde=positivo (kpi-success) */
+const KPI_ESTILOS = {
+  gasto_por_veiculo: { cls: 'kpi-danger', cor: '#e74c3c', iconeBg: 'rgba(231,76,60,0.12)', iconeCor: '#e74c3c' },
+  ticket_medio: { cls: 'kpi-info', cor: 'var(--info)', iconeBg: 'rgba(52,152,219,0.12)', iconeCor: 'var(--info)' },
+  desvio_preco: { cls: 'kpi-warning', cor: 'var(--warning)', iconeBg: 'rgba(243,156,18,0.12)', iconeCor: 'var(--warning)' },
+  tempo_aprovacao: { cls: 'kpi-info', cor: 'var(--info)', iconeBg: 'rgba(52,152,219,0.12)', iconeCor: 'var(--info)' },
+  pedidos_parados: { cls: 'kpi-warning', cor: 'var(--warning)', iconeBg: 'rgba(243,156,18,0.12)', iconeCor: 'var(--warning)' },
+  taxa_rejeicao: { cls: 'kpi-danger', cor: '#e74c3c', iconeBg: 'rgba(231,76,60,0.12)', iconeCor: '#e74c3c' },
+  lead_time_fornecedor: { cls: 'kpi-info', cor: 'var(--info)', iconeBg: 'rgba(52,152,219,0.12)', iconeCor: 'var(--info)' },
+  concentracao_fornecedor: { cls: 'kpi-warning', cor: 'var(--warning)', iconeBg: 'rgba(243,156,18,0.12)', iconeCor: 'var(--warning)' },
+  solicitantes_ativos: { cls: 'kpi-success', cor: 'var(--success)', iconeBg: 'rgba(46,204,113,0.12)', iconeCor: 'var(--success)' },
+  taxa_duplicidade: { cls: 'kpi-danger', cor: '#e74c3c', iconeBg: 'rgba(231,76,60,0.12)', iconeCor: '#e74c3c' }
+};
+
+const KPI_SUBTITULOS = {
+  gasto_por_veiculo: 'Soma dos gastos por veículo',
+  ticket_medio: 'Média por pedido no período',
+  desvio_preco: 'Itens fora da média histórica',
+  tempo_aprovacao: 'Do pedido até a aprovação',
+  pedidos_parados: '+48h sem atualização',
+  taxa_rejeicao: 'Pedidos rejeitados no período',
+  lead_time_fornecedor: 'Do pedido até a entrega real',
+  concentracao_fornecedor: 'Fatia do maior fornecedor',
+  solicitantes_ativos: 'Usuários que abriram pedidos',
+  taxa_duplicidade: 'Pedidos duplicados detectados'
+};
+
+// Sparkline de tendencia (SVG puro, sem biblioteca): linha fina, sem eixo/legenda/grade.
+function gerarSparklineSVG(pontos, cor) {
+  if (!pontos || pontos.length < 2) return '';
+  const valores = pontos.map(p => Number(p.valor) || 0);
+  const min = Math.min(...valores);
+  const max = Math.max(...valores);
+  const w = 100, h = 28, pad = 2;
+  const range = (max - min) || 1;
+  const coords = valores.map((v, i) => {
+    const x = pad + (i / (valores.length - 1)) * (w - pad * 2);
+    const y = h - pad - ((v - min) / range) * (h - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `
+    <svg viewBox="0 0 ${w} ${h}" class="kpi-sparkline" preserveAspectRatio="none" aria-hidden="true">
+      <polyline points="${coords}" fill="none" style="stroke:${cor}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`;
+}
+
+function renderKpiCards(kpis) {
+  return (kpis || []).map(k => {
+    const estilo = KPI_ESTILOS[k.chave] || { cls: 'kpi-primary', cor: 'var(--text)', iconeBg: 'rgba(11,37,69,0.1)', iconeCor: 'var(--text)' };
+    const icone = KPI_ICONES[k.chave] || 'fa-solid fa-chart-simple';
+    const badgeAgora = k.sem_periodo && !k.indisponivel
+      ? ' <span class="kpi-badge-agora" title="Situação atual do sistema"><i class="bi bi-broadcast"></i> agora</span>'
+      : '';
+    const subtitulo = k.indisponivel
+      ? `<span class="kpi-sub"><i class="fa-solid fa-circle-info me-1"></i>${escapeHtml(k.motivo || 'Aguardando dados')}</span>`
+      : `<span class="kpi-sub"><i class="fa-solid fa-chart-line me-1"></i>${escapeHtml(KPI_SUBTITULOS[k.chave] || k.label)}</span>`;
+    // Sparkline apenas para KPIs com suporte a periodo e disponiveis; ausente = nenhum espaco vazio.
+    const sparkline = !k.indisponivel && !k.sem_periodo && Array.isArray(k.tendencia) && k.tendencia.length > 1
+      ? gerarSparklineSVG(k.tendencia, estilo.cor)
+      : '';
+    const acoesCard = k.indisponivel
+      ? ` title="${escapeHtml(k.motivo || 'Indicador indisponível')}"`
+      : ` onclick="abrirKpiDetalhe('${k.chave}')" role="button" title="Clique para ver os registros por trás deste número"`;
+    return `
+      <div class="kpi-card ${estilo.cls}${k.indisponivel ? ' kpi-indisponivel' : ' kpi-clickable'}"${acoesCard}>
+        <div class="kpi-icon" style="background:${estilo.iconeBg};color:${estilo.iconeCor};"><i class="${icone}"></i></div>
+        <div class="kpi-content">
+          <div class="kpi-label"><i class="${icone} me-1"></i>${escapeHtml(k.label)}${badgeAgora}</div>
+          <div class="kpi-value${k.indisponivel ? ' kpi-em-breve' : ''}">${k.indisponivel ? 'Em breve' : kpiFmtValor(k.unidade, k.valor)}</div>
+          <div class="kpi-footer">${kpiVariacaoBadge(k)}${subtitulo}</div>
+          ${sparkline}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function carregarKpis() {
+  const grid = document.getElementById('kpiGrid');
+  if (!grid) return;
+  grid.innerHTML = '<div class="dash-loading" style="grid-column:1/-1;"><div class="spinner"></div><span>Calculando indicadores...</span></div>';
+  try {
+    let url = '/kpis';
+    if (kpiPeriodo?.dataInicio && kpiPeriodo?.dataFim) {
+      url += `?dataInicio=${encodeURIComponent(kpiPeriodo.dataInicio)}&dataFim=${encodeURIComponent(kpiPeriodo.dataFim)}`;
+    }
+    const data = await API.get(url);
+    KPI_LISTA = data.kpis || [];
+    const label = document.getElementById('kpiPeriodoLabel');
+    if (label) label.textContent = data.periodoTexto || 'Todo o período';
+    grid.innerHTML = renderKpiCards(KPI_LISTA);
+  } catch (err) {
+    grid.innerHTML = `<div class="dash-error" style="grid-column:1/-1;"><i class="fa-solid fa-circle-exclamation me-2"></i>${err.error || 'Erro ao carregar indicadores'}</div>`;
+  }
+}
+
+function abrirSeletorPeriodoKpi() {
+  modal(`
+    <div class="modal-header">
+      <h5 class="modal-title fw-bold">Período dos Indicadores</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="radio" name="kpiPeriodoTipo" id="kpiPeriodoTodo" value="todo" ${!kpiPeriodo?.dataInicio ? 'checked' : ''}>
+        <label class="form-check-label" for="kpiPeriodoTodo">Todo o período</label>
+      </div>
+      <div class="form-check mb-3">
+        <input class="form-check-input" type="radio" name="kpiPeriodoTipo" id="kpiPeriodoEspecifico" value="especifico" ${kpiPeriodo?.dataInicio ? 'checked' : ''}>
+        <label class="form-check-label" for="kpiPeriodoEspecifico">Período específico</label>
+      </div>
+      <div id="kpiPeriodoDatas" style="display:${kpiPeriodo?.dataInicio ? 'block' : 'none'};">
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="form-label small">Data inicio</label>
+            <input type="date" class="form-control" id="kpiDataInicio" value="${kpiPeriodo?.dataInicio || ''}">
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Data fim</label>
+            <input type="date" class="form-control" id="kpiDataFim" value="${kpiPeriodo?.dataFim || ''}">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+      <button type="button" class="btn btn-primary" onclick="aplicarPeriodoKpi()">Aplicar</button>
+    </div>
+  `, 'sm');
+
+  document.querySelectorAll('input[name="kpiPeriodoTipo"]').forEach(r =>
+    r.addEventListener('change', () => {
+      document.getElementById('kpiPeriodoDatas').style.display =
+        document.getElementById('kpiPeriodoEspecifico').checked ? 'block' : 'none';
+    })
+  );
+}
+
+function aplicarPeriodoKpi() {
+  const especifico = document.getElementById('kpiPeriodoEspecifico').checked;
+  if (especifico) {
+    const inicio = document.getElementById('kpiDataInicio').value;
+    const fim = document.getElementById('kpiDataFim').value;
+    if (!inicio || !fim) { alert('Selecione as duas datas do periodo.'); return; }
+    if (inicio > fim) { alert('A data inicial deve ser anterior à data final.'); return; }
+    kpiPeriodo = { dataInicio: inicio, dataFim: fim };
+  } else {
+    kpiPeriodo = null;
+  }
+  _lastModal?.hide();
+  carregarKpis();
+}
+
+function kpiExportUrl(chave, formato) {
+  const token = API.token || localStorage.getItem('token') || '';
+  let q = `formato=${formato}&token=${encodeURIComponent(token)}`;
+  if (kpiPeriodo?.dataInicio && kpiPeriodo?.dataFim) {
+    q += `&dataInicio=${kpiPeriodo.dataInicio}&dataFim=${kpiPeriodo.dataFim}`;
+  }
+  return `/api/kpis/${chave}/export?${q}`;
+}
+
+function kpiFrotaReportUrl(formato) {
+  const token = API.token || localStorage.getItem('token') || '';
+  let q = `formato=${formato}&token=${encodeURIComponent(token)}`;
+  if (kpiPeriodo?.dataInicio && kpiPeriodo?.dataFim) {
+    q += `&dataInicio=${kpiPeriodo.dataInicio}&dataFim=${kpiPeriodo.dataFim}`;
+  }
+  return `/api/dashboard/relatorio-frota/export?${q}`;
+}
+
+function kpiTabelaDetalhe(dados) {
+  if (!dados.colunas || !dados.colunas.length) {
+    return '<div class="text-center text-muted py-4">Sem detalhamento disponível.</div>';
+  }
+  const ths = dados.colunas.map(c =>
+    `<th class="${KPI_TIPOS_NUM.includes(c.tipo) ? 'text-end' : ''}">${escapeHtml(c.label)}</th>`).join('');
+  const trs = (dados.registros || []).map(r => `
+    <tr>${dados.colunas.map(c =>
+      `<td class="${KPI_TIPOS_NUM.includes(c.tipo) ? 'text-end text-nowrap' : ''}">${kpiFmtCelula(c.tipo, r[c.key])}</td>`).join('')}</tr>`).join('');
+  if (!trs) {
+    return '<div class="text-center text-muted py-4">Nenhum registro encontrado para o período.</div>';
+  }
+  return `
+    <div class="table-responsive" style="max-height:55vh;">
+      <table class="kpi-detalhe-tabela">
+        <thead><tr>${ths}</tr></thead>
+        <tbody>${trs}</tbody>
+      </table>
+    </div>
+    ${(dados.registros || []).length >= 500
+      ? '<div class="text-muted small mt-2">Exibindo os primeiros 500 registros.</div>'
+      : ''}`;
+}
+
+// ===== GRAFICO DO DRILL-DOWN (Chart.js, exibicao em tela) =====
+let _kpiChartInstance = null;
+let _kpiDrillAberto = null;
+
+function destruirGraficoKpi() {
+  if (_kpiChartInstance) {
+    _kpiChartInstance.destroy();
+    _kpiChartInstance = null;
+  }
+}
+
+function kpiCorGrafico(chave) {
+  // Canvas 2d nao resolve var(--css); mapeia para os hex exatos do tema.
+  const mapa = { 'var(--info)': '#3498DB', 'var(--warning)': '#F39C12', 'var(--success)': '#2ECC71' };
+  const cor = (KPI_ESTILOS[chave] || {}).cor;
+  return mapa[cor] || cor || '#0B2545';
+}
+
+function kpiDatasetsGrafico(grafico, corHex) {
+  if (grafico.tipo === 'barras_horizontais') {
+    return [{
+      label: 'Total Gasto',
+      data: grafico.valores,
+      backgroundColor: grafico.cores,
+      borderRadius: 4,
+      maxBarThickness: 26
+    }];
+  }
+  if (grafico.tipo === 'linha_multipla') {
+    return grafico.series.map((s, i) => {
+      const cor = s.cor || `hsl(${(i * 47) % 360}, 70%, 55%)`;
+      const pontoUnico = s.valores.filter(v => v !== null && v !== undefined).length <= 1;
+      return {
+        label: s.label,
+        data: s.valores,
+        borderColor: cor,
+        backgroundColor: cor,
+        fill: false,
+        tension: 0.3,
+        pointRadius: pontoUnico ? 5 : 2.5,
+        pointHoverRadius: pontoUnico ? 7 : 4,
+        borderWidth: 2
+      };
+    });
+  }
+  if (Array.isArray(grafico.series)) {
+    const coresSeries = [corHex, '#95A5A6'];
+    return grafico.series.map((s, i) => ({
+      label: s.label,
+      data: s.valores,
+      backgroundColor: coresSeries[i % coresSeries.length],
+      borderRadius: 4
+    }));
+  }
+  if (grafico.tipo === 'linha') {
+    return [{
+      data: grafico.valores,
+      borderColor: corHex,
+      backgroundColor: corHex,
+      fill: false,
+      tension: 0.3,
+      pointRadius: 3
+    }];
+  }
+  const ehPizza = grafico.tipo === 'pizza';
+  return [{
+    data: grafico.valores,
+    backgroundColor: ehPizza
+      ? grafico.labels.map((_, i) => `hsl(${(i * 47) % 360}, 70%, 55%)`)
+      : corHex,
+    borderRadius: ehPizza ? 0 : 4,
+    borderWidth: ehPizza ? 1 : undefined,
+    borderColor: ehPizza ? 'rgba(255,255,255,0.8)' : undefined
+  }];
+}
+
+const kpiCoresTemaGrafico = () => {
+  const escuro = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+  return escuro
+    ? { rotulo: '#e2e8f0', tick: '#94a3b8', eixo: '#cbd5e1', grid: 'rgba(148, 163, 184, 0.14)', legenda: '#94a3b8' }
+    : { rotulo: '#334155', tick: '#64748b', eixo: '#334155', grid: 'rgba(100, 116, 139, 0.16)', legenda: '#64748b' };
+};
+
+const kpiPluginRotuloValorBarras = {
+  id: 'kpiRotuloValorBarras',
+  afterDatasetsDraw(chart) {
+    const meta = chart.getDatasetMeta(0);
+    if (!meta || !chart.data.datasets[0]) return;
+    const { ctx } = chart;
+    ctx.save();
+    ctx.font = '700 11px Inter, system-ui, sans-serif';
+    ctx.fillStyle = kpiCoresTemaGrafico().rotulo;
+    ctx.textBaseline = 'middle';
+    meta.data.forEach((barra, i) => {
+      const valor = chart.data.datasets[0].data[i];
+      if (valor === null || valor === undefined) return;
+      const texto = fmtCurrency(valor);
+      const largura = ctx.measureText(texto).width;
+      const cabeFora = barra.x + 8 + largura <= chart.width;
+      ctx.textAlign = cabeFora ? 'left' : 'right';
+      ctx.fillText(texto, cabeFora ? barra.x + 8 : barra.x - 8, barra.y);
+    });
+    ctx.restore();
+  }
+};
+
+function kpiTickMoedaCompacto(v) {
+  if (Math.abs(v) >= 1000) return `R$ ${(v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil`;
+  return fmtCurrency(v);
+}
+
+function renderizarGraficoKpi(chave, grafico) {
+  destruirGraficoKpi();
+  document.getElementById('kpiDrillLegenda')?.remove();
+  if (!grafico || !window.Chart || _kpiDrillAberto !== chave) return;
+  const canvas = document.getElementById('kpiDrillGrafico');
+  const wrap = document.getElementById('kpiDrillGraficoWrap');
+  if (!canvas || !wrap || !Array.isArray(grafico.labels) || !grafico.labels.length) return;
+
+  if (grafico.tipo === 'barras_horizontais') {
+    const qtd = grafico.labels.length;
+    const alturaNecessaria = qtd * 36 + 70;
+    wrap.style.height = Math.min(alturaNecessaria, 440) + 'px';
+    wrap.style.maxHeight = '440px';
+    wrap.style.overflowY = 'auto';
+    const coresTema = kpiCoresTemaGrafico();
+    const itensLegenda = grafico.labels.map((placa, i) =>
+      `<span style="display:inline-flex;align-items:center;gap:5px;font-size:.72rem;color:${coresTema.legenda};">` +
+      `<span style="width:10px;height:10px;border-radius:3px;background:${grafico.cores[i]};flex:none;"></span>${escapeHtml(placa)}</span>`
+    ).join('');
+    wrap.insertAdjacentHTML('afterend',
+      `<div id="kpiDrillLegenda" class="d-flex flex-wrap justify-content-center" style="gap:10px;margin:-4px 0 12px;">${itensLegenda}</div>`);
+    _kpiChartInstance = new Chart(canvas.getContext('2d'), {
+      type: 'bar',
+      data: { labels: grafico.labels, datasets: kpiDatasetsGrafico(grafico, kpiCorGrafico(chave)) },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 500 },
+        layout: { padding: { right: 90 } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, .95)',
+            padding: 10,
+            callbacks: {
+              label: (item) => {
+                const m = (grafico.meta || [])[item.dataIndex] || {};
+                return [
+                  `Modelo: ${m.modelo || '-'}`,
+                  `Pedidos: ${m.pedidos ?? '-'}`,
+                  `Total gasto: ${fmtCurrency(item.parsed.x)}`
+                ];
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            grid: { color: coresTema.grid },
+            border: { display: false },
+            ticks: { color: coresTema.tick, font: { size: 11 }, callback: (v) => kpiTickMoedaCompacto(v) }
+          },
+          y: {
+            grid: { display: false },
+            border: { display: false },
+            ticks: { color: coresTema.eixo, font: { size: 12, weight: 600 } }
+          }
+        }
+      },
+      plugins: [kpiPluginRotuloValorBarras]
+    });
+    return;
+  }
+
+  const tipoChart = grafico.tipo === 'pizza' ? 'doughnut'
+    : grafico.tipo === 'linha' || grafico.tipo === 'linha_multipla' ? 'line'
+    : 'bar';
+  _kpiChartInstance = new Chart(canvas.getContext('2d'), {
+    type: tipoChart,
+    data: { labels: grafico.labels, datasets: kpiDatasetsGrafico(grafico, kpiCorGrafico(chave)) },
+    options: {
+      indexAxis: grafico.tipo === 'bar' ? 'y' : 'x',
+      plugins: {
+        legend: { display: grafico.tipo === 'pizza' || Array.isArray(grafico.series), position: 'bottom' }
+      },
+      responsive: true,
+      maintainAspectRatio: false
+    }
+  });
+}
+
+function exibirGraficoKpi(chave, grafico) {
+  const wrap = document.getElementById('kpiDrillGraficoWrap');
+  if (!wrap || !grafico) return;
+  wrap.style.display = 'block';
+  const el = document.getElementById('dynamicModal');
+  if (!el) return;
+  // Canvas com largura 0 se desenhado antes do modal terminar de abrir.
+  if (el.classList.contains('show')) {
+    renderizarGraficoKpi(chave, grafico);
+  } else {
+    el.addEventListener('shown.bs.modal', () => renderizarGraficoKpi(chave, grafico), { once: true });
+  }
+}
+
+async function abrirKpiDetalhe(chave) {
+  const k = (KPI_LISTA || []).find(x => x.chave === chave);
+  if (!k || k.indisponivel) return;
+  _kpiDrillAberto = chave;
+  modal(`
+    <div class="modal-header">
+      <h5 class="modal-title fw-bold"><i class="${KPI_ICONES[chave] || 'bi-bar-chart'} me-2"></i>${escapeHtml(k.label)}</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <div>
+          <span class="text-muted small">${k.sem_periodo ? 'Situação atual' : `Período: ${escapeHtml(k.periodoTexto || 'Todo o período')}`}</span>
+          <div class="fs-4 fw-bold">${kpiFmtValor(k.unidade, k.valor)}</div>
+          ${kpiVariacaoBadge(k)}
+        </div>
+        ${k.descricao ? `<p class="text-muted small mb-0" style="max-width:320px;">${escapeHtml(k.descricao)}</p>` : ''}
+      </div>
+      <div id="kpiDrillGraficoWrap" class="mb-3" style="height:220px;position:relative;display:none;">
+        <canvas id="kpiDrillGrafico"></canvas>
+      </div>
+      <div id="kpiDetalheBody">
+        <div class="dash-loading"><div class="spinner"></div><span>Carregando detalhes...</span></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      ${chave === 'gasto_por_veiculo' ? `
+      <a href="#" class="btn btn-outline-primary btn-sm" style="border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;" title="Relatório de gastos da frota no mesmo período" onclick="this.href=kpiFrotaReportUrl('pdf')" target="_blank"><i class="fa-solid fa-file-pdf"></i> Relatório da Frota</a>
+      <a href="#" class="btn btn-outline-primary btn-sm" style="border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;" title="Relatório de gastos da frota no mesmo período" onclick="this.href=kpiFrotaReportUrl('excel')" target="_blank"><i class="fa-solid fa-file-excel"></i> Relatório da Frota</a>` : ''}
+      <a href="#" id="kpiExportPdf" class="btn btn-outline-danger btn-sm" style="border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;" onclick="this.href=kpiExportUrl('${chave}','pdf')" target="_blank"><i class="fa-solid fa-file-pdf"></i> Exportar PDF</a>
+      <a href="#" id="kpiExportExcel" class="btn btn-outline-success btn-sm" style="border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;" onclick="this.href=kpiExportUrl('${chave}','excel')" target="_blank"><i class="fa-solid fa-file-excel"></i> Exportar Excel</a>
+      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+    </div>
+  `, 'lg');
+
+  const elModal = document.getElementById('dynamicModal');
+  if (elModal) {
+    elModal.addEventListener('hidden.bs.modal', () => {
+      destruirGraficoKpi();
+      if (_kpiDrillAberto === chave) _kpiDrillAberto = null;
+    });
+  }
+
+  try {
+    let url = `/kpis/${chave}/detalhe`;
+    if (kpiPeriodo?.dataInicio && kpiPeriodo?.dataFim) {
+      url += `?dataInicio=${encodeURIComponent(kpiPeriodo.dataInicio)}&dataFim=${encodeURIComponent(kpiPeriodo.dataFim)}`;
+    }
+    const dados = await API.get(url);
+    if (_kpiDrillAberto !== chave) return;
+    const body = document.getElementById('kpiDetalheBody');
+    if (body) body.innerHTML = kpiTabelaDetalhe(dados);
+    exibirGraficoKpi(chave, dados.grafico);
+  } catch (err) {
+    const body = document.getElementById('kpiDetalheBody');
+    if (body) body.innerHTML = `<div class="alert alert-danger mb-0">${escapeHtml(err.error || 'Erro ao carregar detalhes')}</div>`;
+  }
 }
 
 // ---------- DASHBOARD ----------
-let RANK_VEIC_DADOS = [];
 window.placaAtualConsultada = null;
-
-const rankPosClass = (i) => i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
-const rankIcon = (i) => i === 0 ? '<i class="fa-solid fa-trophy"></i>' : i === 1 ? '<i class="fa-solid fa-medal"></i>' : i === 2 ? '<i class="fa-solid fa-award"></i>' : (i + 1);
-
-function renderRankVeicRows(dados) {
-  return (dados || []).map((r, i) => `
-    <tr>
-      <td><span class="rank-pos ${rankPosClass(i)}">${rankIcon(i)}</span></td>
-      <td class="rank-name"><i class="fa-solid fa-car me-1" style="color:var(--text-light);font-size:11px"></i>${r.placa || '-'}<br><small class="rank-sub">${[r.marca, r.modelo].filter(Boolean).join(' ') || ''}</small></td>
-      <td class="rank-stat text-end"><i class="fa-solid fa-clipboard me-1" style="font-size:11px"></i>${r.total}</td>
-      <td class="text-end rank-value"><i class="fa-solid fa-brazilian-real-sign me-1"></i>${fmtCurrency(r.valor)}</td>
-    </tr>`).join('');
-}
-
-function filterRankVeic(valor) {
-  const tbody = document.getElementById('rankVeicBody');
-  if (!tbody) return;
-  const termo = (valor || '').trim().toLowerCase();
-  const dados = !termo
-    ? RANK_VEIC_DADOS
-    : RANK_VEIC_DADOS.filter(r => [r.placa, r.marca, r.modelo].filter(Boolean).join(' ').toLowerCase().includes(termo));
-  tbody.innerHTML = dados.length
-    ? renderRankVeicRows(dados)
-    : '<tr><td colspan="4" style="text-align:center;padding:1.5rem;color:var(--text-light);"><i class="fa-solid fa-car-side mb-2" style="display:block;font-size:22px;opacity:.4"></i>Nenhum veiculo encontrado</td></tr>';
-}
 
 function abrirSeletorPeriodo(formato) {
   modal(`
@@ -903,238 +1285,54 @@ function gerarRelatorioComPeriodo(formato) {
   _lastModal?.hide();
 }
 
-function buildMesKeys(dias) {
-  const mesKeys = [];
-  const hoje = new Date();
-  if (dias > 0) {
-    const inicio = new Date();
-    inicio.setDate(inicio.getDate() - dias);
-    const cur = new Date(inicio.getFullYear(), inicio.getMonth(), 1);
-    while (cur <= hoje) {
-      mesKeys.push(cur.getFullYear() + '-' + String(cur.getMonth() + 1).padStart(2, '0'));
-      cur.setMonth(cur.getMonth() + 1);
-    }
-  } else {
-    for (let m = 0; m < 12; m++) {
-      mesKeys.push(hoje.getFullYear() + '-' + String(m + 1).padStart(2, '0'));
-    }
-  }
-  return mesKeys;
-}
-
-function buildValoresMesData(valoresMes, dias) {
-  const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-  const mesKeys = buildMesKeys(dias);
-  const byMes = {};
-  (valoresMes || []).forEach(r => { byMes[r.mes] = r; });
-  return {
-    labels: mesKeys.map(k => `${MESES[parseInt(k.slice(5), 10) - 1]}/${k.slice(2, 4)}`),
-    aprovados: mesKeys.map(k => parseFloat((byMes[k] || {}).valor_aprovado) || 0),
-    pendentes: mesKeys.map(k => parseFloat((byMes[k] || {}).valor_pendente) || 0),
-    totalPedidos: mesKeys.map(k => parseInt((byMes[k] || {}).total_pedidos, 10) || 0)
-  };
-}
-
-function buildGastosUsuarioData(gastos, dias) {
-  const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-  const mesKeys = buildMesKeys(dias);
-  const byMes = {};
-  (gastos || []).forEach(r => { byMes[r.mes] = r; });
-  return {
-    labels: mesKeys.map(k => `${MESES[parseInt(k.slice(5), 10) - 1]}/${k.slice(2, 4)}`),
-    valores: mesKeys.map(k => parseFloat((byMes[k] || {}).valor) || 0)
-  };
-}
-
-PAGES.dashboard = async function (dias) {
-  dias = (typeof dias === 'number' ? dias : dashDias) || 0;
+PAGES.dashboard = async function () {
   const c = document.getElementById('pageContent');
   c.innerHTML = '<div class="dashboard"><div class="dash-loading"><div class="spinner"></div><span>Carregando dashboard...</span></div></div>';
   try {
-    const q = (url) => dias > 0 ? `${url}${url.includes('?') ? '&' : '?'}dias=${dias}` : url;
-    const isFull = ['diretor', 'administrativo'].includes(user.perfil);
-    const [kpis, tempoMedio] = await Promise.all([
-      API.get(q('/dashboard/kpis')).catch(() => ({})),
-      API.get(q('/dashboard/tempo-medio-resposta')).catch(() => ({}))
-    ]);
+    c.innerHTML = `
+      <div class="dashboard">
+        <div class="dash-header">
+          <div>
+            <h1><i class="fa-solid fa-gauge-high me-2" style="color:var(--accent)"></i>Dashboard</h1>
+            <p class="dash-subtitle"><i class="fa-solid fa-chart-pie me-1"></i>Visão geral de pedidos e gastos</p>
+          </div>
+          <div class="dash-breadcrumb"><i class="fa-solid fa-house me-1"></i>Home / <span><i class="fa-solid fa-gauge me-1"></i>Dashboard</span></div>
+        </div>
 
-    if (!isFull) {
-      const [valoresMes, gastosUsuario] = await Promise.all([
-        API.get(q('/dashboard/valores-por-mes')).catch(() => []),
-        API.get(q('/dashboard/valores-gastos-usuario')).catch(() => [])
-      ]);
-      c.innerHTML = `
-        <div class="dashboard">
-          <div class="dash-header">
-            <div>
-              <h1><i class="fa-solid fa-gauge-high me-2" style="color:var(--accent)"></i>Dashboard</h1>
-              <p class="dash-subtitle"><i class="fa-solid fa-chart-pie me-1"></i>Resumo de pedidos e gastos</p>
-            </div>
-            <div class="dash-breadcrumb"><i class="fa-solid fa-house me-1"></i>Home / <span><i class="fa-solid fa-gauge me-1"></i>Dashboard</span></div>
-          </div>
-          ${dashFilterBar(dias)}
-          <div class="kpi-grid">
-            ${kpiCards(kpis, tempoMedio)}
-          </div>
-          <div class="charts-grid">
-            <div class="chart-card chart-wide">
-              <div class="chart-title"><i class="fa-solid fa-chart-column"></i>Valores Aprovados x Pendentes por Mês</div>
-              <canvas id="chartValoresMes" height="300"></canvas>
-            </div>
-            <div class="chart-card">
-              <div class="chart-title"><i class="fa-solid fa-chart-line"></i>Valores Gastos por ${escapeHtml(user.nome || 'Você')}</div>
-              <canvas id="chartGastosUsuario" height="260"></canvas>
+        ${kpiIndicadoresSectionHtml()}
+
+        <div class="vehicle-report-section">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+            <h3 style="font-size:15px;font-weight:700;margin:0;"><i class="fa-solid fa-file-lines me-2" style="color:var(--accent)"></i>Relatorios de Veiculos</h3>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn btn-outline-danger btn-sm" onclick="abrirSeletorPeriodo('pdf')" style="border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+                <i class="fa-solid fa-file-pdf"></i> Relatorio PDF
+              </button>
+              <button class="btn btn-outline-success btn-sm" onclick="abrirSeletorPeriodo('excel')" style="border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+                <i class="fa-solid fa-file-excel"></i> Relatorio Excel
+              </button>
             </div>
           </div>
-
-          <div class="vehicle-report-section" style="margin-top:24px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
-              <h3 style="font-size:15px;font-weight:700;margin:0;"><i class="fa-solid fa-file-lines me-2" style="color:var(--accent)"></i>Relatorios de Veiculos</h3>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <button class="btn btn-outline-danger btn-sm" onclick="abrirSeletorPeriodo('pdf')" style="border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
-                  <i class="fa-solid fa-file-pdf"></i> Relatorio PDF
-                </button>
-                <button class="btn btn-outline-success btn-sm" onclick="abrirSeletorPeriodo('excel')" style="border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
-                  <i class="fa-solid fa-file-excel"></i> Relatorio Excel
-                </button>
-              </div>
+          <div class="placa-search-section">
+            <div class="placa-search-header">
+              <i class="fa-solid fa-magnifying-glass"></i>
+              <h3>Consulta por Placa</h3>
             </div>
-            <div class="placa-search-section">
-              <div class="placa-search-header">
-                <i class="fa-solid fa-magnifying-glass"></i>
-                <h3>Consulta por Placa</h3>
+            <div class="placa-search-box">
+              <div class="placa-input-wrapper">
+                <input type="text" id="placaInput" placeholder="Digite a placa do veiculo..." autocomplete="off">
+                <div id="placaSuggestions" class="placa-suggestions"></div>
               </div>
-              <div class="placa-search-box">
-                <div class="placa-input-wrapper">
-                  <input type="text" id="placaInput" placeholder="Digite a placa do veiculo..." autocomplete="off">
-                  <div id="placaSuggestions" class="placa-suggestions"></div>
-                </div>
-                <button onclick="buscarPorPlaca()"><i class="fa-solid fa-magnifying-glass"></i> Consultar</button>
-              </div>
-              <div id="placaResult"></div>
+              <button onclick="buscarPorPlaca()"><i class="fa-solid fa-magnifying-glass"></i> Consultar</button>
             </div>
+            <div id="placaResult"></div>
           </div>
-        </div>`;
-      setTimeout(() => {
-        const vm = buildValoresMesData(valoresMes, dias);
-        createComboChart('chartValoresMes', vm.labels, vm.aprovados, vm.pendentes, vm.totalPedidos);
-        const gu = buildGastosUsuarioData(gastosUsuario, dias);
-        createLineChart('chartGastosUsuario', gu.labels, gu.valores, 'Valores Gastos', '#2ECC71', 'rgba(46, 204, 113, 0.15)');
-        initPlacaAutocomplete();
-      }, 100);
-    } else {
-      const [kpisDir, valoresMes, pedidosSetor, rankSol, rankVeic, tempoMedio] = await Promise.all([
-        API.get(q('/dashboard/kpis-diretor')).catch(() => ({})),
-        API.get(q('/dashboard/valores-por-mes')).catch(() => []),
-        API.get(q('/dashboard/pedidos-por-setor')).catch(() => []),
-        API.get(q('/dashboard/ranking-solicitantes?limit=1000')).catch(() => []),
-        API.get(q('/dashboard/pedidos-por-veiculo?limit=1000')).catch(() => []),
-        API.get(q('/dashboard/tempo-medio-resposta')).catch(() => ({}))
-      ]);
-
-      const rankVeicOrdenado = (rankVeic || []).slice().sort((a, b) => (b.valor || 0) - (a.valor || 0));
-      RANK_VEIC_DADOS = rankVeicOrdenado;
-
-      c.innerHTML = `
-        <div class="dashboard">
-          <div class="dash-header">
-            <div>
-              <h1><i class="fa-solid fa-gauge-high me-2" style="color:var(--accent)"></i>Dashboard</h1>
-              <p class="dash-subtitle"><i class="fa-solid fa-chart-pie me-1"></i>Visão geral de pedidos e gastos</p>
-            </div>
-            <div class="dash-breadcrumb"><i class="fa-solid fa-house me-1"></i>Home / <span><i class="fa-solid fa-gauge me-1"></i>Dashboard</span></div>
-          </div>
-          ${dashFilterBar(dias)}
-
-          <div class="kpi-grid kpi-grid-4">
-            ${kpiCardsDiretor(kpisDir, tempoMedio)}
-          </div>
-
-          <div class="charts-grid">
-            <div class="chart-card chart-wide">
-              <div class="chart-title"><i class="fa-solid fa-chart-column"></i>Valores Aprovados x Pendentes por Mês</div>
-              <canvas id="chartValoresMes" height="300"></canvas>
-            </div>
-            <div class="chart-card">
-              <div class="chart-title"><i class="fa-solid fa-chart-line"></i>Pedidos e Valores por Setor</div>
-              <canvas id="chartSetorLinha" height="300"></canvas>
-            </div>
-            <div class="rank-card">
-              <div class="rank-title"><i class="fa-solid fa-users"></i>Ranking Geral</div>
-              <div class="rank-scroll">
-              ${rankSol.length > 0 ? `
-              <table class="rank-table">
-                <thead><tr><th><i class="fa-solid fa-medal"></i></th><th><i class="fa-solid fa-user me-1"></i>Usuário</th><th class="text-end"><i class="fa-solid fa-clipboard me-1"></i>Pedidos</th><th class="text-end"><i class="fa-solid fa-coins me-1"></i>Valores Gastos</th></tr></thead>
-                <tbody>
-                  ${rankSol.map((r, i) => `
-                  <tr>
-                    <td><span class="rank-pos ${rankPosClass(i)}">${rankIcon(i)}</span></td>
-                    <td class="rank-name"><i class="fa-solid fa-user me-1" style="color:var(--text-light);font-size:11px"></i>${r.nome || '-'}</td>
-                    <td class="rank-stat text-end"><i class="fa-solid fa-clipboard me-1" style="font-size:11px"></i>${r.total_pedidos}</td>
-                    <td class="text-end rank-value"><i class="fa-solid fa-brazilian-real-sign me-1"></i>${fmtCurrency(r.valor_total)}</td>
-                  </tr>`).join('')}
-                </tbody>
-              </table>` : '<div class="rank-empty"><i class="fa-solid fa-user-slash"></i><span>Nenhum usuário registrado</span></div>'}
-              </div>
-            </div>
-            <div class="rank-card">
-              <div class="rank-title"><i class="fa-solid fa-car-side"></i>Ranking de Valores Gastos por Veículo</div>
-              <div class="rank-filter">
-                <i class="fa-solid fa-magnifying-glass"></i>
-                <input type="text" id="veicFilter" class="rank-filter-input" placeholder="Buscar por placa, marca ou modelo..." oninput="filterRankVeic(this.value)">
-              </div>
-              <div class="rank-scroll">
-              ${rankVeicOrdenado.length > 0 ? `
-              <table class="rank-table">
-                <thead><tr><th><i class="fa-solid fa-medal"></i></th><th><i class="fa-solid fa-car me-1"></i>Veículo</th><th class="text-end"><i class="fa-solid fa-clipboard me-1"></i>Pedidos</th><th class="text-end"><i class="fa-solid fa-coins me-1"></i>Valor Gasto</th></tr></thead>
-                <tbody id="rankVeicBody">
-                  ${renderRankVeicRows(rankVeicOrdenado)}
-                </tbody>
-              </table>` : '<div class="rank-empty"><i class="fa-solid fa-car-side"></i><span>Nenhum veículo registrado</span></div>'}
-              </div>
-            </div>
-          </div>
-
-          <div class="vehicle-report-section" style="margin-top:24px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
-              <h3 style="font-size:15px;font-weight:700;margin:0;"><i class="fa-solid fa-file-lines me-2" style="color:var(--accent)"></i>Relatorios de Veiculos</h3>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <button class="btn btn-outline-danger btn-sm" onclick="abrirSeletorPeriodo('pdf')" style="border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
-                  <i class="fa-solid fa-file-pdf"></i> Relatorio PDF
-                </button>
-                <button class="btn btn-outline-success btn-sm" onclick="abrirSeletorPeriodo('excel')" style="border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
-                  <i class="fa-solid fa-file-excel"></i> Relatorio Excel
-                </button>
-              </div>
-            </div>
-            <div class="placa-search-section">
-              <div class="placa-search-header">
-                <i class="fa-solid fa-magnifying-glass"></i>
-                <h3>Consulta por Placa</h3>
-              </div>
-              <div class="placa-search-box">
-                <div class="placa-input-wrapper">
-                  <input type="text" id="placaInput" placeholder="Digite a placa do veiculo..." autocomplete="off">
-                  <div id="placaSuggestions" class="placa-suggestions"></div>
-                </div>
-                <button onclick="buscarPorPlaca()"><i class="fa-solid fa-magnifying-glass"></i> Consultar</button>
-              </div>
-              <div id="placaResult"></div>
-            </div>
-          </div>
-        </div>`;
-
-      setTimeout(() => {
-        const vm = buildValoresMesData(valoresMes, dias);
-        createComboChart('chartValoresMes', vm.labels, vm.aprovados, vm.pendentes, vm.totalPedidos);
-
-        const sLabels = (pedidosSetor || []).map(r => r.setor || '-');
-        const sPedidos = (pedidosSetor || []).map(r => r.total || 0);
-        const sValores = (pedidosSetor || []).map(r => parseFloat(r.valor) || 0);
-        createPedidosValoresLinha('chartSetorLinha', sLabels, sPedidos, sValores);
-        initPlacaAutocomplete();
-      }, 50);
-    }
+        </div>
+      </div>`;
+    setTimeout(() => {
+      initPlacaAutocomplete();
+      carregarKpis();
+    }, 50);
   } catch (err) {
     c.innerHTML = `<div class="dashboard"><div class="dash-error"><i class="fa-solid fa-circle-exclamation me-2"></i>${err.error || 'Erro ao carregar o dashboard'}</div></div>`;
   }
@@ -1786,6 +1984,7 @@ function createUrgentesPage(label) {
     const search = searchEl?.value || '';
     const dataInicio = document.getElementById('solDataInicio_urgentes')?.value || '';
     const dataFim = document.getElementById('solDataFim_urgentes')?.value || '';
+    const triagem = document.getElementById('triagemFilter_urgentes')?.value || '';
     c.innerHTML = `<div class="loading-screen"><div class="spinner-border"></div></div>`;
     try {
       const params = new URLSearchParams({ page: pg, limit: 15, urgente: 1 });
@@ -1793,6 +1992,7 @@ function createUrgentesPage(label) {
       if (search) params.set('search', search);
       if (dataInicio) params.set('data_inicio', dataInicio);
       if (dataFim) params.set('data_fim', dataFim);
+      if (triagem) params.set('triagem', triagem);
       const [data, users] = await Promise.all([
         API.get(`/orders?${params}`),
         API.get('/users/list-dropdown').catch(() => []),
@@ -1813,6 +2013,12 @@ function createUrgentesPage(label) {
               <option value="">Todos os solicitantes</option>
               ${userOpts}
             </select>
+            <select class="form-select form-select-sm" id="triagemFilter_urgentes" style="width:auto;" onchange="PAGES['${pageKey}'](1)">
+              <option value="">Todas as triagens</option>
+              <option value="urgente"${triagem === 'urgente' ? ' selected' : ''}>Urgente</option>
+              <option value="carro_vendido"${triagem === 'carro_vendido' ? ' selected' : ''}>Carro vendido</option>
+              <option value="carro_estoque"${triagem === 'carro_estoque' ? ' selected' : ''}>Carro estoque</option>
+            </select>
             <div class="input-group input-group-sm" style="width:auto;">
               <span class="input-group-text">De</span>
               <input type="date" class="form-control" id="solDataInicio_urgentes" value="${dataInicio}" onchange="PAGES['${pageKey}'](1)">
@@ -1825,7 +2031,7 @@ function createUrgentesPage(label) {
           <button class="btn btn-primary btn-sm" onclick="openOrder()"><i class="bi bi-plus-lg me-1"></i>Novo Pedido</button>
         </div>
         <div class="card"><div class="table-responsive">
-          ${!data.data?.length ? '<div class="empty-state"><i class="bi bi-alarm"></i><p>Nenhum pedido urgente</p></div>' : `
+          ${!data.data?.length ? '<div class="empty-state"><i class="bi bi-alarm"></i><p>Nenhum pedido em atenção</p></div>' : `
           <table class="table table-hover"><thead><tr><th>Número</th><th>Veículo</th><th class="d-none d-md-table-cell">Solicitante</th><th class="d-none d-sm-table-cell">Data</th><th class="d-none d-sm-table-cell">Sem resposta</th>${isOficinaOrd ? '' : '<th class="d-none d-sm-table-cell">Valor</th>'}<th>Status</th><th class="d-none d-lg-table-cell">Tempo</th><th class="text-end">Ações</th></tr></thead>
           <tbody>${data.data.map(o => `<tr${renderOrderRowClass(o)}>
             <td>${renderOrderNumero(o)}</td><td>${o.placa || '-'}</td><td class="d-none d-md-table-cell">${o.usuario_nome || '-'}</td>
@@ -1844,7 +2050,8 @@ function createUrgentesPage(label) {
   };
 }
 
-createUrgentesPage('Pedidos Urgentes');
+createUrgentesPage('Pedidos de Atenção');
+PAGES.urgentes = PAGES.orders_urgentes;
 
 async function viewOrder(id) {
   try {
@@ -1880,11 +2087,13 @@ async function viewOrder(id) {
 
     const vehicleLabel = [o.veiculo_marca, o.veiculo_modelo].filter(Boolean).join(' ') || o.placa || '---';
 
+    const urgencia = calcularUrgenciaPedido(o);
+
     const subtotal = itens.reduce(function (s, i) { return s + Number(i.valor_total || 0); }, 0);
 
     const canManage = user.perfil === 'logistica';
 
-    const showActions = canManage;
+    const showActions = canManage && !['concluido', 'rejeitado'].includes(o.status);
 
     const precisaDiretor = Number(o.valor_total) > DIRECTOR_APPROVAL_LIMIT;
     const canApprove = o.status === 'aguardando_aprovacao'
@@ -1898,7 +2107,7 @@ async function viewOrder(id) {
     mHtml += '  <div class="pm-header-left">';
     mHtml += '    <div class="pm-header-icon"><i data-lucide="shopping-cart"></i></div>';
     mHtml += '    <div class="pm-header-info">';
-    mHtml += '      <div class="pm-header-title">' + escapeHtml('Pedido ' + (o.numero || '')) + '</div>';
+    mHtml += '      <div class="pm-header-title">' + escapeHtml('Pedido ' + (o.numero || '')) + (urgencia.urgente ? ' <span class="badge rounded-pill text-bg-danger" style="font-size:.62rem;vertical-align:middle;" title="Sem atualiza\u00e7\u00e3o h\u00e1 ' + urgencia.horas + ' horas"><i class="bi bi-alarm"></i> ' + urgencia.horas + 'h sem resposta</span>' : '') + (o.triagem ? triagemBadge(o.triagem) : '') + '</div>';
     mHtml += '      <div class="pm-header-date"><i data-lucide="calendar"></i> ' + fmtDate(o.data_pedido) + '</div>';
     mHtml += '    </div>';
     mHtml += '  </div>';
@@ -1911,6 +2120,13 @@ async function viewOrder(id) {
     mHtml += '  </div>';
     mHtml += '  <div class="tab-content">';
     mHtml += '    <div class="tab-pane fade show active" id="pm-detalhes" role="tabpanel">';
+    if (urgencia.urgente) {
+      mHtml += '      <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;background:rgba(220,38,38,.08);border:1px solid rgba(220,38,38,.25);margin-bottom:14px;">';
+      mHtml += '        <i class="bi bi-alarm" style="color:#dc2626;font-size:1.1rem;"></i>';
+      mHtml += '        <div><div style="font-size:.85rem;font-weight:700;color:#b91c1c;">Pedido urgente \u2014 sem atualiza\u00e7\u00e3o h\u00e1 ' + urgencia.horas + 'h</div>';
+      mHtml += '        <div style="font-size:.75rem;color:#7f1d1d;">\u00datima movimenta\u00e7\u00e3o em ' + fmtDateTime(o.ultima_atualizacao) + '. Aguardando resposta da log\u00edstica.</div></div>';
+      mHtml += '      </div>';
+    }
     mHtml += '      <div class="pm-section">';
     mHtml += '        <div class="pm-section-title"><i data-lucide="info"></i> Informa\u00e7\u00f5es Principais</div>';
     mHtml += '        <div class="pm-grid-4">';
@@ -1922,7 +2138,7 @@ async function viewOrder(id) {
     mHtml += '      </div>';
     mHtml += '      <div class="pm-grid-3">';
     mHtml += '        <div class="pm-card"><div class="pm-card-label"><i data-lucide="calendar"></i> Data</div><div class="pm-card-value">' + fmtDate(o.data_pedido) + '</div></div>';
-    mHtml += '        <div class="pm-card"><div class="pm-card-label"><i data-lucide="circle"></i> Status</div><div><span class="pm-badge ' + statusBadgeClass + '">' + statusLabel(o.status) + '</span></div></div>';
+    mHtml += '        <div class="pm-card"><div class="pm-card-label"><i data-lucide="circle"></i> Status</div><div><span class="pm-badge ' + statusBadgeClass + '">' + statusLabel(o.status) + '</span>' + (o.duplicidade_ignorada ? ' <span class="badge rounded-pill text-bg-warning" style="font-size:.62rem;" title="Criado mesmo ap\u00f3s aviso de poss\u00edvel duplicidade"><i data-lucide="triangle-alert"></i> Duplicidade confirmada</span>' : '') + '</div></div>';
     mHtml += '        <div class="pm-card"><div class="pm-card-label"><i data-lucide="truck"></i> Entrega</div><div><span class="pm-badge ' + entregaBadgeClass + '">' + entregaLabel + '</span></div></div>';
     mHtml += '      </div>';
     if (showActions) {
@@ -2163,6 +2379,62 @@ async function viewOrder(id) {
 
 let pendingPhotos = [];
 
+let _pecasCache = null;
+
+async function carregarPecasDatalist() {
+  if (_pecasCache) return _pecasCache;
+  try {
+    const resp = await API.get('/parts?limit=500');
+    _pecasCache = (resp.data || []).map(p => ({ id: p.id, nome: p.nome }));
+  } catch (e) { _pecasCache = []; }
+  return _pecasCache;
+}
+
+function resolverPecaId(descricao) {
+  const termo = String(descricao || '').trim().toLowerCase();
+  if (!termo) return null;
+  const peca = (_pecasCache || []).find(p => p.nome.trim().toLowerCase() === termo);
+  return peca ? peca.id : null;
+}
+
+function pedirConfirmacaoDuplicidade(conflitos) {
+  return new Promise(function (resolve) {
+    var resolvido = false;
+    var decidir = function (valor) { if (!resolvido) { resolvido = true; resolve(valor); } };
+    var itensHtml = conflitos.map(function (c) {
+      return '<li class="mb-2 p-2 border rounded">' +
+        '<strong>' + escapeHtml(c.peca_nome || '-') + '</strong> &mdash; Pedido ' + escapeHtml(c.numero || '') + '<br>' +
+        '<small class="text-muted">Solicitado por ' + escapeHtml(c.solicitante_nome || '-') + ' em ' + fmtDateTime(c.data_pedido) + '</small>' +
+        '</li>';
+    }).join('');
+    var wrapper = document.createElement('div');
+    wrapper.innerHTML =
+      '<div class="modal fade" id="dupWarningModal" tabindex="-1">' +
+      '<div class="modal-dialog modal-dialog-centered"><div class="modal-content">' +
+      '<div class="modal-header">' +
+      '<h5 class="modal-title fw-bold text-warning"><i class="bi bi-exclamation-triangle me-2"></i>Poss\u00edvel pedido duplicado</h5>' +
+      '<button type="button" class="btn-close" data-bs-dismiss="modal"></button>' +
+      '</div>' +
+      '<div class="modal-body">' +
+      '<p>Encontramos pedido(s) recente(s) para essa mesma pe\u00e7a, nesse mesmo ve\u00edculo:</p>' +
+      '<ul class="list-unstyled mb-3">' + itensHtml + '</ul>' +
+      '<p class="mb-0">Deseja continuar mesmo assim?</p>' +
+      '</div>' +
+      '<div class="modal-footer">' +
+      '<button type="button" class="btn btn-secondary" id="dupCancelBtn">Cancelar</button>' +
+      '<button type="button" class="btn btn-warning" id="dupConfirmBtn">Confirmar mesmo assim</button>' +
+      '</div>' +
+      '</div></div></div>';
+    var el = wrapper.firstElementChild;
+    document.body.appendChild(el);
+    var m = new bootstrap.Modal(el);
+    el.addEventListener('hidden.bs.modal', function () { el.remove(); decidir(false); });
+    el.querySelector('#dupCancelBtn').addEventListener('click', function () { m.hide(); });
+    el.querySelector('#dupConfirmBtn').addEventListener('click', function () { decidir(true); m.hide(); });
+    m.show();
+  });
+}
+
 async function openOrder(id) {
   try {
     const isEdit = !!id;
@@ -2224,6 +2496,15 @@ async function openOrder(id) {
     mHtml += '            <div id="veiculoSuggestions" class="placa-suggestions"></div>';
     mHtml += '          </div>';
     mHtml += '          <input type="hidden" name="veiculo_id" id="veiculoIdHidden" value="' + escapeHtml(String(editVeiculoId)) + '">';
+    mHtml += '        </div>';
+    mHtml += '        <div class="pm-section">';
+    mHtml += '          <div class="pm-section-title"><i data-lucide="flag"></i> Triagem *</div>';
+    mHtml += '          <div class="pm-triagem-group" id="triagemGroup">';
+    mHtml += '            <button type="button" class="pm-triagem-btn pm-triagem-urgente" data-valor="urgente"><i class="bi bi-exclamation-triangle"></i> Urgente</button>';
+    mHtml += '            <button type="button" class="pm-triagem-btn pm-triagem-vendido" data-valor="carro_vendido"><i class="bi bi-cash-coin"></i> Carro vendido</button>';
+    mHtml += '            <button type="button" class="pm-triagem-btn pm-triagem-estoque" data-valor="carro_estoque"><i class="bi bi-box-seam"></i> Carro estoque</button>';
+    mHtml += '          </div>';
+    mHtml += '          <input type="hidden" name="triagem" id="triagemHidden" value="' + (isEdit ? escapeHtml(order.triagem || '') : '') + '">';
     mHtml += '        </div>';
     mHtml += '        <div class="pm-section">';
     mHtml += '          <div class="pm-section-title"><i data-lucide="file-text"></i> Observações</div>';
@@ -2320,6 +2601,27 @@ async function openOrder(id) {
     if (window.lucide) lucide.createIcons();
     initVeiculoAutocomplete();
 
+    document.querySelectorAll('#triagemGroup .pm-triagem-btn').forEach(function (btn) {
+      if (btn.dataset.valor === (document.getElementById('triagemHidden').value || '')) btn.classList.add('active');
+      btn.addEventListener('click', function () {
+        document.querySelectorAll('#triagemGroup .pm-triagem-btn').forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        document.getElementById('triagemHidden').value = btn.dataset.valor;
+        updateOrderSubmitState();
+      });
+    });
+
+    carregarPecasDatalist().then(pecas => {
+      let dl = document.getElementById('pecasDatalist');
+      if (!dl) {
+        dl = document.createElement('datalist');
+        dl.id = 'pecasDatalist';
+        document.body.appendChild(dl);
+      }
+      dl.innerHTML = pecas.map(p => `<option value="${escapeHtml(p.nome)}" data-id="${p.id}"></option>`).join('');
+      document.querySelectorAll('#orderItems .desc-input').forEach(inp => inp.setAttribute('list', 'pecasDatalist'));
+    });
+
     const orderForm = document.getElementById('orderForm');
     const orderSubmitBtn = document.getElementById('orderSubmit');
     const orderItemsEl = document.getElementById('orderItems');
@@ -2327,6 +2629,7 @@ async function openOrder(id) {
     const validateOrderForm = () => {
       if (!orderForm || !orderSubmitBtn) return false;
       if (!orderForm.veiculo_id.value.trim()) return false;
+      if (!isEdit && !document.getElementById('triagemHidden')?.value) return false;
       if (user.perfil === 'logistica' && !orderForm.querySelector('[name="previsao_entrega"]')?.value) return false;
       const rows = [...(orderItemsEl?.querySelectorAll('.order-item') || [])];
       if (!rows.length) return false;
@@ -2381,6 +2684,7 @@ async function openOrder(id) {
           descricao: row.querySelector('.desc-input').value.trim(),
           quantidade: parseInt(row.querySelector('.qtd-input').value) || 1
         };
+        if (row.dataset.pecaId) item.peca_id = parseInt(row.dataset.pecaId);
         var valorInput = row.querySelector('.valor-input');
         if (valorInput) item.valor_unitario = parseFloat(valorInput.value) || 0;
         var fornecedorInput = row.querySelector('.fornecedor-input');
@@ -2393,20 +2697,29 @@ async function openOrder(id) {
       btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
       try {
         var previsao = (user.perfil === 'logistica') ? (document.querySelector('[name="previsao_entrega"]')?.value || undefined) : undefined;
+        var triagem = document.getElementById('triagemHidden').value || null;
         if (isEdit) {
-          await API.put('/orders/' + id, { veiculo_id: parseInt(veiculo_id), observacoes: form.observacoes.value, itens: itens, previsao_entrega: previsao });
+          await API.put('/orders/' + id, { veiculo_id: parseInt(veiculo_id), observacoes: form.observacoes.value, itens: itens, previsao_entrega: previsao, triagem: triagem });
+          toast('Pedido atualizado');
+          bsModal.hide(); PAGES.orders();
         } else {
           var destSel = form.querySelector('[name="destinatario_id"]');
           var destinatarioId = destSel && destSel.value ? parseInt(destSel.value) : undefined;
-          var newOrder = await API.post('/orders', { veiculo_id: parseInt(veiculo_id), observacoes: form.observacoes.value, itens: itens, previsao_entrega: previsao, destinatario_id: destinatarioId });
+          var payload = { veiculo_id: parseInt(veiculo_id), observacoes: form.observacoes.value, itens: itens, previsao_entrega: previsao, destinatario_id: destinatarioId, triagem: triagem };
+          var newOrder = await API.post('/orders', payload);
+          if (newOrder && newOrder.duplicidadeDetectada) {
+            var confirmou = await pedirConfirmacaoDuplicidade(newOrder.conflitos || []);
+            if (!confirmou) return;
+            newOrder = await API.post('/orders', Object.assign({}, payload, { confirmarDuplicidade: true }));
+          }
           for (var _fi = 0; _fi < pendingPhotos.length; _fi++) {
             var fd = new FormData();
             fd.append('foto', pendingPhotos[_fi]);
             await API.upload('/orders/' + newOrder.id + '/upload', fd);
           }
+          toast('Pedido criado com sucesso');
+          bsModal.hide(); PAGES.orders();
         }
-        toast(isEdit ? 'Pedido atualizado' : 'Pedido criado com sucesso');
-        bsModal.hide(); PAGES.orders();
       } catch (err) { toast(err.error || 'Erro ao salvar', 'danger'); }
       finally { btn.disabled = false; btn.innerHTML = isEdit ? 'Salvar' : 'Criar Pedido'; if (window.lucide) lucide.createIcons(); }
     });
@@ -2420,6 +2733,8 @@ function addItem() {
   const c = template.cloneNode(true);
   c.querySelectorAll('input').forEach(i => i.value = '');
   c.querySelector('input[type="number"]').value = '1';
+  delete c.dataset.pecaId;
+  c.querySelector('.desc-input')?.setAttribute('list', 'pecasDatalist');
   orderItems.appendChild(c);
   if (window.lucide) lucide.createIcons();
   calcTotal();
@@ -2438,6 +2753,12 @@ function calcTotal() {
   if (el) el.textContent = fmtCurrency(t);
 }
 document.addEventListener('change', e => { if (e.target.closest('.order-item')) calcTotal(); });
+document.addEventListener('input', e => {
+  const row = e.target.closest?.('.order-item');
+  if (!row || !e.target.classList.contains('desc-input')) return;
+  const pecaId = resolverPecaId(e.target.value);
+  if (pecaId) row.dataset.pecaId = String(pecaId); else delete row.dataset.pecaId;
+});
 
 async function delOrder(id) {
   if (!confirm('Excluir este pedido?')) return;
@@ -2616,8 +2937,8 @@ async function buscarPorPlaca(placa) {
         <span><i class="fa-solid fa-clipboard-list me-1" style="color:var(--primary)"></i><strong>Pedidos:</strong> ${pedidos.length}</span>
       </div>
       <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin:0.75rem 0;">
-        <a href="/api/dashboard/relatorio-veiculo/${encodeURIComponent(p)}/export?formato=pdf&token=${encodeURIComponent(API.token || localStorage.getItem('token') || '')}" target="_blank" class="btn-view" style="width:auto;padding:7px 16px;border:none;border-radius:8px;background:var(--danger,#dc3545);color:#fff;cursor:pointer;font-size:12px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'"><i class="fa-solid fa-file-pdf"></i> Exportar PDF</a>
-        <a href="/api/dashboard/relatorio-veiculo/${encodeURIComponent(p)}/export?formato=excel&token=${encodeURIComponent(API.token || localStorage.getItem('token') || '')}" target="_blank" class="btn-view" style="width:auto;padding:7px 16px;border:none;border-radius:8px;background:var(--success,#16a34a);color:#fff;cursor:pointer;font-size:12px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'"><i class="fa-solid fa-file-excel"></i> Exportar Excel</a>
+        <button type="button" class="btn-view" style="width:auto;padding:7px 16px;border:none;border-radius:8px;background:var(--danger,#dc3545);color:#fff;cursor:pointer;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px;" onclick="abrirSeletorPeriodo('pdf')"><i class="fa-solid fa-file-pdf"></i> Exportar PDF</button>
+        <button type="button" class="btn-view" style="width:auto;padding:7px 16px;border:none;border-radius:8px;background:var(--success,#16a34a);color:#fff;cursor:pointer;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px;" onclick="abrirSeletorPeriodo('excel')"><i class="fa-solid fa-file-excel"></i> Exportar Excel</button>
       </div>
       ${!pedidos.length ? '<div class="placa-no-results" style="padding:20px"><i class="fa-solid fa-inbox"></i><br>Nenhum pedido encontrado para este veiculo</div>' : pedidos.map(o => `
       <div class="placa-order-card">

@@ -12,10 +12,17 @@ const STATUS_MAP = {
 const statusLabel = (s) => STATUS_MAP[s] || s || '-';
 
 const statusColor = (s) => {
-  if (s === 'aprovado' || s === 'comprado' || s === 'concluido') return '#16a34a';
-  if (s === 'pendente' || s === 'aguardando_aprovacao' || s === 'em_compra' || s === 'novo_orcamento') return '#d97706';
-  if (s === 'rejeitado') return '#dc2626';
-  return '#6b7280';
+  const cores = {
+    pendente: '#d4a017',
+    em_compra: '#2563eb',
+    aguardando_aprovacao: '#7c3aed',
+    novo_orcamento: '#ea580c',
+    aprovado: '#16a34a',
+    rejeitado: '#dc2626',
+    comprado: '#0d9488',
+    concluido: '#4f46e5'
+  };
+  return cores[s] || '#6b7280';
 };
 
 module.exports = { STATUS_MAP, statusLabel, statusColor };
