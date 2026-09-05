@@ -348,6 +348,30 @@
         </div>
       </div>
 
+      <% if (ordem.rateios && ordem.rateios.length) { %>
+        <div class="section">
+          <div class="section-title">Rateios</div>
+          <div class="section-body">
+            <table>
+              <thead>
+                <tr>
+                  <th>Unidade</th>
+                  <th style="width: 30%;">Valor</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% ordem.rateios.forEach((r) => { %>
+                  <tr>
+                    <td><%= r.unidade %></td>
+                    <td><%= fmt(r.valor) %></td>
+                  </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      <% } %>
+
       <div class="signature">
         <div class="small">
           <div><strong>Pedido nº:</strong> <%= ordem.pedido_numero || '' %></div>

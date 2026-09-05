@@ -22,9 +22,8 @@ class OrdemCompraRepository {
         pedido_id, pedido_item_id, fornecedor_id, fornecedor_nome, fornecedor_endereco, fornecedor_telefone,
         numero, tipo, prazo_entrega, condicoes_pagamento, data_emissao,
         uso_veiculo, veiculo_uso, placa_uso,
-        rateio_guara, rateio_lorena, rateio_outros,
         centro_custo, observacoes, subtotal, desconto, total, criado_por
-      ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.pedido_id,
         data.pedido_item_id,
@@ -39,9 +38,6 @@ class OrdemCompraRepository {
         data.uso_veiculo || null,
         data.veiculo_uso || null,
         data.placa_uso || null,
-        data.rateio_guara ?? null,
-        data.rateio_lorena ?? null,
-        data.rateio_outros ?? null,
         data.centro_custo,
         data.observacoes || null,
         data.subtotal || 0,
@@ -53,16 +49,28 @@ class OrdemCompraRepository {
     return result.insertId;
   }
 
+  async createRateios(conn, ocId, rateios) {
+    if (!Array.isArray(rateios) || !rateios.length) return;
+    const values = rateios
+      .filter((r) => r && r.unidade && Number(r.valor) > 0)
+      .map((r) => [ocId, r.unidade, Number(r.valor)]);
+    if (!values.length) return;
+    await conn.query(
+      'INSERT INTO ordem_compra_rateios (ordem_compra_id, unidade, valor) VALUES ?',
+      [values]
+    );
+  }
+
+  async findRateiosByOcId(ocId, conn = db) {
+    const [rows] = await conn.query(
+      'SELECT unidade, valor FROM ordem_compra_rateios WHERE ordem_compra_id = ? ORDER BY unidade ASC',
+      [ocId]
+    );
+    return rows;
+  }
+
   async updateNumero(conn, id, numero) {
     await conn.query('UPDATE ordens_compra SET numero = ? WHERE id = ?', [numero, id]);
-  }
-
-  async linkItemToOc(conn, itemId, ocId) {
-    await conn.query('UPDATE pedido_itens SET ordem_compra_id = ? WHERE id = ?', [ocId, itemId]);
-  }
-
-  async unlinkAllItemsByPedido(conn, pedidoId) {
-    await conn.query('UPDATE pedido_itens SET ordem_compra_id = NULL WHERE pedido_id = ?', [pedidoId]);
   }
 
   async findPrintableByOcId(ocId, conn = db) {
@@ -110,7 +118,9 @@ class OrdemCompraRepository {
       ORDER BY pi.id ASC
     `, [rows[0].pedido_item_id]);
 
-    return { ...rows[0], itens };
+    const rateios = await this.findRateiosByOcId(rows[0].id, conn);
+
+    return { ...rows[0], itens, rateios };
   }
 
   async findPrintableByPedidoId(pedidoId, conn = db) {
@@ -161,7 +171,9 @@ class OrdemCompraRepository {
         ORDER BY pi.id ASC
       `, [oc.pedido_item_id]);
 
-      results.push({ ...oc, itens });
+      const rateios = await this.findRateiosByOcId(oc.id, conn);
+
+      results.push({ ...oc, itens, rateios });
     }
 
     return results;

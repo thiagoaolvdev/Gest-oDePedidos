@@ -15,7 +15,26 @@ const up = async (db) => {
 };
 
 const down = async (db) => {
-  const tables = ['refresh_tokens', 'auditoria', 'notificacoes', 'pedido_itens', 'pedidos', 'pecas', 'veiculos', 'usuarios'];
+  const tables = [
+    'ordem_compra_rateios',
+    'ordens_compra',
+    'pedido_itens',
+    'notificacoes',
+    'pedido_historico',
+    'compras',
+    'pedido_arquivos',
+    'pedido_fotos',
+    'pedidos',
+    'refresh_tokens',
+    'auditoria',
+    'veiculos',
+    'pecas',
+    'modelos',
+    'marcas',
+    'categorias_pecas',
+    'fornecedores',
+    'usuarios'
+  ];
   for (const table of tables) {
     await db.execute(`DROP TABLE IF EXISTS ${table}`);
   }

@@ -18,6 +18,28 @@ const normalizeDate = (value) => {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
 };
 
+const normalizeRateios = (data) => {
+  const rateios = [];
+  if (Array.isArray(data.rateios)) {
+    for (const r of data.rateios) {
+      const unidade = sanitizeText(String(r.unidade || '').trim());
+      const valor = money(r.valor);
+      if (unidade && valor > 0) rateios.push({ unidade, valor });
+    }
+    return rateios;
+  }
+  const legado = [
+    ['Guara', data.rateio_guara],
+    ['Lorena', data.rateio_lorena],
+    ['Outros', data.rateio_outros]
+  ];
+  for (const [unidade, v] of legado) {
+    const valor = v !== undefined && v !== null ? money(v) : 0;
+    if (valor > 0) rateios.push({ unidade, valor });
+  }
+  return rateios;
+};
+
 class OrdemCompraService {
   constructor() {
     this.orderRepo = new OrderRepository();
@@ -52,9 +74,7 @@ class OrdemCompraService {
     const veiculoUso = sanitizeText(globalData.veiculo_uso || '');
     const placaUso = sanitizeText(globalData.placa_uso || '');
     const descontoTotal = money(globalData.desconto);
-    const rateioGuara = globalData.rateio_guara !== undefined ? money(globalData.rateio_guara) : null;
-    const rateioLorena = globalData.rateio_lorena !== undefined ? money(globalData.rateio_lorena) : null;
-    const rateioOutros = globalData.rateio_outros !== undefined ? money(globalData.rateio_outros) : null;
+    const rateios = normalizeRateios(globalData);
 
     const missing = [];
     if (!tipo) missing.push('tipo');
@@ -124,9 +144,6 @@ class OrdemCompraService {
             uso_veiculo: usoVeiculo,
             veiculo_uso: veiculoUso || null,
             placa_uso: placaUso || null,
-            rateio_guara: rateioGuara,
-            rateio_lorena: rateioLorena,
-            rateio_outros: rateioOutros,
             centro_custo: centroCusto,
             observacoes: observacoes || null,
             subtotal: subtotalItem,
@@ -135,9 +152,10 @@ class OrdemCompraService {
             criado_por: userId
           });
 
+          await this.repo.createRateios(conn, createdId, rateios);
+
           const numero = `OC-${String(createdId).padStart(6, '0')}`;
           await this.repo.updateNumero(conn, createdId, numero);
-          await this.repo.linkItemToOc(conn, pedidoItemId, createdId);
 
           createdOcIds.push(createdId);
           existingItemIds.add(pedidoItemId);
@@ -198,9 +216,7 @@ class OrdemCompraService {
     const veiculoUso = sanitizeText(data.veiculo_uso || '');
     const placaUso = sanitizeText(data.placa_uso || '');
     const descontoTotal = money(data.desconto);
-    const rateioGuara = data.rateio_guara !== undefined ? money(data.rateio_guara) : null;
-    const rateioLorena = data.rateio_lorena !== undefined ? money(data.rateio_lorena) : null;
-    const rateioOutros = data.rateio_outros !== undefined ? money(data.rateio_outros) : null;
+    const rateios = normalizeRateios(data);
 
     const missing = [];
     if (!tipo) missing.push('tipo');
@@ -254,9 +270,6 @@ class OrdemCompraService {
           uso_veiculo: usoVeiculo,
           veiculo_uso: veiculoUso || null,
           placa_uso: placaUso || null,
-          rateio_guara: rateioGuara,
-          rateio_lorena: rateioLorena,
-          rateio_outros: rateioOutros,
           centro_custo: centroCusto,
           observacoes: observacoes || null,
           subtotal: subtotalItem,
@@ -265,9 +278,10 @@ class OrdemCompraService {
           criado_por: userId
         });
 
+        await this.repo.createRateios(conn, createdId, rateios);
+
         const numero = `OC-${String(createdId).padStart(6, '0')}`;
         await this.repo.updateNumero(conn, createdId, numero);
-        await this.repo.linkItemToOc(conn, pedidoItemId, createdId);
 
         createdOcIds.push(createdId);
         existingItemIds.add(pedidoItemId);
@@ -309,18 +323,24 @@ class OrdemCompraService {
 
   async findAllByPedido(pedidoId) {
     const ocs = await this.repo.findByPedidoId(pedidoId);
-    return ocs.map(oc => ({
-      id: oc.id,
-      numero: oc.numero,
-      fornecedor_nome: oc.fornecedor_nome,
-      fornecedor_id: oc.fornecedor_id,
-      subtotal: oc.subtotal,
-      total: oc.total,
-      tipo: oc.tipo,
-      prazo_entrega: oc.prazo_entrega,
-      data_emissao: oc.data_emissao,
-      created_at: oc.created_at
-    }));
+    const result = [];
+    for (const oc of ocs) {
+      const rateios = await this.repo.findRateiosByOcId(oc.id);
+      result.push({
+        id: oc.id,
+        numero: oc.numero,
+        fornecedor_nome: oc.fornecedor_nome,
+        fornecedor_id: oc.fornecedor_id,
+        subtotal: oc.subtotal,
+        total: oc.total,
+        tipo: oc.tipo,
+        prazo_entrega: oc.prazo_entrega,
+        data_emissao: oc.data_emissao,
+        rateios,
+        created_at: oc.created_at
+      });
+    }
+    return result;
   }
 
   async findPrintable(pedidoId, ocId) {
