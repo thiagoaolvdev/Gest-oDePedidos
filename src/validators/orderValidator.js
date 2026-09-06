@@ -9,7 +9,7 @@ const createOrderSchema = {
 
 const statusSchema = {
   body: {
-    status: [required, isIn(['pendente', 'em_compra', 'aguardando_aprovacao', 'novo_orcamento', 'aprovado', 'rejeitado', 'comprado', 'concluido'])]
+    status: [required, isIn(['pendente', 'em_compra', 'aguardando_aprovacao', 'aguardando_autorizacao', 'novo_orcamento', 'aprovado', 'rejeitado', 'comprado', 'concluido'])]
   }
 };
 

@@ -30,7 +30,79 @@ document.addEventListener('DOMContentLoaded', async () => {
   applyPermissions();
   initUI();
   navigate('dashboard');
+  if (user.deveTrocarSenha || user.deve_trocar_senha) {
+    initChangePasswordModal();
+  }
 });
+
+function initChangePasswordModal() {
+  const modalEl = document.getElementById('changePasswordModal');
+  if (!modalEl) return;
+  const modal = new bootstrap.Modal(modalEl, { backdrop: 'static', keyboard: false });
+
+  document.querySelectorAll('[data-cp-toggle]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const input = document.querySelector(btn.getAttribute('data-cp-toggle'));
+      if (!input) return;
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      btn.querySelector('i').className = show ? 'bi bi-eye-slash' : 'bi bi-eye';
+    });
+  });
+
+  const currentInput = document.getElementById('cpCurrentPassword');
+  const newInput = document.getElementById('cpNewPassword');
+  const confirmInput = document.getElementById('cpConfirmPassword');
+  const errorBox = document.getElementById('cpError');
+  const submitBtn = document.getElementById('cpSubmitBtn');
+  const submitSpinner = document.getElementById('cpSubmitSpinner');
+  const submitText = document.getElementById('cpSubmitText');
+
+  function showError(msg) {
+    errorBox.textContent = msg || '';
+    errorBox.classList.toggle('d-none', !msg);
+    document.getElementById('cpSuccess').classList.add('d-none');
+  }
+
+  submitBtn.addEventListener('click', async () => {
+    showError('');
+    document.getElementById('cpSuccess').classList.add('d-none');
+    const current = currentInput.value;
+    const next = newInput.value;
+    const confirm = confirmInput.value;
+    if (!current) return showError('Informe a senha atual.');
+    if (!next || next.length < 10) return showError('A nova senha deve ter no mínimo 10 caracteres.');
+    if (!/[A-Za-zÀ-ÿ]/.test(next) || !/\d/.test(next)) return showError('A nova senha deve conter ao menos uma letra e um número.');
+    if (!/[^A-Za-zÀ-ÿ0-9]/.test(next)) return showError('A nova senha deve conter ao menos um caractere especial (ex: @, #, !, $).');
+    if (next !== confirm) return showError('A confirmação da nova senha não confere.');
+
+    submitBtn.disabled = true;
+    submitSpinner.classList.remove('d-none');
+    submitText.textContent = 'Salvando...';
+    try {
+      await API.post('/auth/change-password', { currentPassword: current, newPassword: next });
+      currentInput.value = '';
+      newInput.value = '';
+      confirmInput.value = '';
+      user.deveTrocarSenha = false;
+      user.deve_trocar_senha = 0;
+      const successBox = document.getElementById('cpSuccess');
+      successBox.classList.remove('d-none');
+      setTimeout(() => {
+        modal.hide();
+        successBox.classList.add('d-none');
+      }, 1200);
+    } catch (err) {
+      showError(err.error || 'Erro ao alterar a senha. Tente novamente.');
+    } finally {
+      submitBtn.disabled = false;
+      submitSpinner.classList.add('d-none');
+      submitText.textContent = 'Salvar nova senha';
+    }
+  });
+
+  modal.show();
+}
 
 function renderUserInfo() {
   const info = ROLE_INFO[user.perfil] || { label: user.perfil, color: 'secondary' };
@@ -142,7 +214,7 @@ function navigate(page) {
   });
   const titles = {
     dashboard: 'Dashboard', vehicles: 'Veículos', marcas: 'Marcas', modelos: 'Modelos', parts: 'Peças',
-    orders: 'Pedidos', urgentes: 'Pedidos Urgentes', orders_urgentes: 'Atenção', orders_pendente: 'Pendentes', orders_aprovado: 'Aprovados', orders_aguardando_aprovacao: 'Aguardando Aprovação', orders_comprado: 'Comprados',
+    orders: 'Pedidos', urgentes: 'Pedidos Urgentes', orders_urgentes: 'Atenção', orders_pendente: 'Pendentes', orders_aprovado: 'Aprovados', orders_aguardando_aprovacao: 'Aguardando Aprovação', orders_aguardando_autorizacao: 'Aguardando Autorização', orders_comprado: 'Comprados',
     entregas_chegou: 'Entregues',
     users: 'Usuários', audit: 'Auditoria',
     fornecedores: 'Fornecedores', profile: 'Meu Perfil'
@@ -159,7 +231,7 @@ function navigate(page) {
 function getPageIcon(page) {
   const icons = {
     dashboard: 'bi-speedometer2', vehicles: 'bi-truck', marcas: 'bi-bookmark', modelos: 'bi-diagram-3', parts: 'bi-gear',
-    orders: 'bi-clipboard-check', urgentes: 'bi-alarm', orders_urgentes: 'bi-alarm', orders_pendente: 'bi-clock', orders_aprovado: 'bi-check-circle', orders_aguardando_aprovacao: 'bi-hourglass-split', orders_comprado: 'bi-cart-check',
+    orders: 'bi-clipboard-check', urgentes: 'bi-alarm', orders_urgentes: 'bi-alarm', orders_pendente: 'bi-clock', orders_aprovado: 'bi-check-circle', orders_aguardando_aprovacao: 'bi-hourglass-split', orders_aguardando_autorizacao: 'bi-shield-lock', orders_comprado: 'bi-cart-check',
     entregas_chegou: 'bi-truck',
     users: 'bi-people', audit: 'bi-journal-text',
     fornecedores: 'bi-shop', profile: 'bi-person-circle'
@@ -168,6 +240,13 @@ function getPageIcon(page) {
 }
 
 // ===== TOAST =====
+function apiErrorMsg(err, fallback = 'Erro') {
+  if (err && err.details && err.details.length) {
+    return err.details.join(' • ');
+  }
+  return (err && err.error) || fallback;
+}
+
 function toast(msg, type = 'success') {
   const c = document.getElementById('toastContainer');
   const colors = { success: '#198754', danger: '#dc3545', warning: '#ffc107', info: '#0dcaf0', dark: '#212529' };
@@ -244,8 +323,8 @@ function renderTempoCell(o) {
   </div>`;
 }
 function renderHistoricoBadge(s) {
-  const labels = { pendente: 'Pendente', em_compra: 'Em Compra', aguardando_aprovacao: 'Aguarda Aprovação', novo_orcamento: 'Novo Orçamento', aprovado: 'Aprovado', rejeitado: 'Cancelado', comprado: 'Comprado', concluido: 'Concluído', entrega_pendente: 'Entrega: Pendente', entrega_em_transito: 'Entrega: Em Trânsito', entrega_chegou: 'Entrega: Chegou' };
-  const classes = { pendente: 'pendente', em_compra: 'em_compra', aguardando_aprovacao: 'aguardando_aprovacao', novo_orcamento: 'novo_orcamento', aprovado: 'aprovado', rejeitado: 'rejeitado', comprado: 'comprado', concluido: 'concluido', entrega_pendente: 'pendente', entrega_em_transito: 'em_compra', entrega_chegou: 'concluido' };
+  const labels = { pendente: 'Pendente', em_compra: 'Em Compra', aguardando_aprovacao: 'Aguarda Aprovação', aguardando_autorizacao: 'Aguarda Autorização Diretor', novo_orcamento: 'Novo Orçamento', aprovado: 'Aprovado', rejeitado: 'Cancelado', comprado: 'Comprado', concluido: 'Concluído', entrega_pendente: 'Entrega: Pendente', entrega_em_transito: 'Entrega: Em Trânsito', entrega_chegou: 'Entrega: Chegou' };
+  const classes = { pendente: 'pendente', em_compra: 'em_compra', aguardando_aprovacao: 'aguardando_aprovacao', aguardando_autorizacao: 'aguardando_aprovacao', novo_orcamento: 'novo_orcamento', aprovado: 'aprovado', rejeitado: 'rejeitado', comprado: 'comprado', concluido: 'concluido', entrega_pendente: 'pendente', entrega_em_transito: 'em_compra', entrega_chegou: 'concluido' };
   return `<span class="status-badge status-${classes[s] || 'pendente'}">${labels[s] || s}</span>`;
 }
 function escapeHtml(value) {
@@ -256,7 +335,7 @@ function escapeHtml(value) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
-const STATUS_MAP = { pendente: 'Pendente', em_compra: 'Em Compra', aguardando_aprovacao: 'Aguarda Aprovação', novo_orcamento: 'Novo Orçamento', aprovado: 'Aprovado', rejeitado: 'Cancelado', comprado: 'Comprado', concluido: 'Concluído' };
+const STATUS_MAP = { pendente: 'Pendente', em_compra: 'Em Compra', aguardando_aprovacao: 'Aguarda Aprovação', aguardando_autorizacao: 'Aguarda Autorização Diretor', novo_orcamento: 'Novo Orçamento', aprovado: 'Aprovado', rejeitado: 'Cancelado', comprado: 'Comprado', concluido: 'Concluído' };
 const DIRECTOR_APPROVAL_LIMIT = 599;
 function statusLabel(s) { return STATUS_MAP[s] || s; }
 function statusBadge(s) { return `<span class="status-badge status-${s}">${statusLabel(s)}</span>`; }
@@ -292,10 +371,11 @@ function calcularUrgenciaPedido(o) {
   return { urgente: horas >= 48, horas };
 }
 function nextStatuses(current, perfil) {
-  const flow = ['pendente', 'em_compra', 'aguardando_aprovacao', 'novo_orcamento', 'aprovado', 'comprado', 'concluido'];
+  const flow = ['pendente', 'em_compra', 'aguardando_aprovacao', 'aguardando_autorizacao', 'novo_orcamento', 'aprovado', 'comprado', 'concluido'];
   const idx = flow.indexOf(current);
   if (idx === -1) return [];
   if (current === 'aguardando_aprovacao') return ['diretor', 'administrativo'].includes(perfil) ? ['aprovado', 'rejeitado'] : [];
+  if (current === 'aguardando_autorizacao') return perfil === 'diretor' ? ['aprovado', 'rejeitado'] : [];
   if (current === 'novo_orcamento') return perfil === 'logistica' ? ['aguardando_aprovacao'] : [];
   const avail = flow.slice(idx + 1).filter(s => s !== 'aguardando_aprovacao');
   if (['diretor', 'administrativo'].includes(perfil)) return avail;
@@ -334,7 +414,7 @@ function buildOcGroups(order) {
     };
     groups.push({
       fornecedor_id: item.fornecedor_id || null,
-      fornecedor_nome: item.fornecedor_nome || '',
+      fornecedor_nome: item.fornecedor_origem || item.fornecedor_nome || '',
       fornecedor_telefone: '',
       fornecedor_endereco: '',
       itens: [itemData]
@@ -672,7 +752,16 @@ async function openNotif(id, pedidoId) {
 const PAGES = {};
 
 // ---------- INDICADORES (KPIS) ----------
-let kpiPeriodo = null;
+function ultimosNDias(n) {
+  const fim = new Date();
+  const inicio = new Date();
+  inicio.setDate(inicio.getDate() - n);
+  const fmt = d => d.toISOString().slice(0, 10);
+  return { dataInicio: fmt(inicio), dataFim: fmt(fim) };
+}
+
+let kpiPeriodo = ultimosNDias(30);
+let kpiPeriodoModo = 'ultimos30'; // 'ultimos30' | 'especifico' | 'todo'
 let KPI_LISTA = [];
 const KPI_TIPOS_NUM = ['moeda', 'numero', 'percentual', 'horas', 'dias'];
 
@@ -685,6 +774,9 @@ function kpiIndicadoresSectionHtml() {
           <span id="kpiPeriodoLabel" class="badge bg-light text-dark border" style="font-weight:600;">Todo o período</span>
           <button class="btn btn-outline-primary btn-sm" onclick="abrirSeletorPeriodoKpi()" style="border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
             <i class="fa-solid fa-calendar-days"></i> Período
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" onclick="abrirAjudaKpis()" title="Como funciona" style="border-radius:8px;display:inline-flex;align-items:center;gap:6px;">
+            <i class="fa-solid fa-circle-question"></i>
           </button>
           <button class="btn btn-outline-secondary btn-sm" onclick="carregarKpis()" title="Atualizar indicadores" style="border-radius:8px;display:inline-flex;align-items:center;gap:6px;">
             <i class="fa-solid fa-arrows-rotate"></i>
@@ -746,11 +838,11 @@ function kpiVariacaoBadge(k) {
 const KPI_ICONES = {
   gasto_por_veiculo: 'fa-solid fa-truck',
   ticket_medio: 'fa-solid fa-receipt',
-  desvio_preco: 'fa-solid fa-tags',
+  pedidos_em_atencao: 'fa-solid fa-triangle-exclamation',
   tempo_aprovacao: 'fa-solid fa-hourglass-half',
   pedidos_parados: 'fa-solid fa-clock-rotate-left',
   taxa_rejeicao: 'fa-solid fa-circle-xmark',
-  lead_time_fornecedor: 'fa-solid fa-truck-fast',
+  tempo_resposta_triagem: 'fa-solid fa-stopwatch',
   concentracao_fornecedor: 'fa-solid fa-warehouse',
   solicitantes_ativos: 'fa-solid fa-users',
   taxa_duplicidade: 'fa-solid fa-clone'
@@ -761,11 +853,11 @@ const KPI_ICONES = {
 const KPI_ESTILOS = {
   gasto_por_veiculo: { cls: 'kpi-danger', cor: '#e74c3c', iconeBg: 'rgba(231,76,60,0.12)', iconeCor: '#e74c3c' },
   ticket_medio: { cls: 'kpi-info', cor: 'var(--info)', iconeBg: 'rgba(52,152,219,0.12)', iconeCor: 'var(--info)' },
-  desvio_preco: { cls: 'kpi-warning', cor: 'var(--warning)', iconeBg: 'rgba(243,156,18,0.12)', iconeCor: 'var(--warning)' },
+  pedidos_em_atencao: { cls: 'kpi-warning', cor: 'var(--warning)', iconeBg: 'rgba(243,156,18,0.12)', iconeCor: 'var(--warning)' },
   tempo_aprovacao: { cls: 'kpi-info', cor: 'var(--info)', iconeBg: 'rgba(52,152,219,0.12)', iconeCor: 'var(--info)' },
   pedidos_parados: { cls: 'kpi-warning', cor: 'var(--warning)', iconeBg: 'rgba(243,156,18,0.12)', iconeCor: 'var(--warning)' },
   taxa_rejeicao: { cls: 'kpi-danger', cor: '#e74c3c', iconeBg: 'rgba(231,76,60,0.12)', iconeCor: '#e74c3c' },
-  lead_time_fornecedor: { cls: 'kpi-info', cor: 'var(--info)', iconeBg: 'rgba(52,152,219,0.12)', iconeCor: 'var(--info)' },
+  tempo_resposta_triagem: { cls: 'kpi-warning', cor: 'var(--warning)', iconeBg: 'rgba(243,156,18,0.12)', iconeCor: 'var(--warning)' },
   concentracao_fornecedor: { cls: 'kpi-warning', cor: 'var(--warning)', iconeBg: 'rgba(243,156,18,0.12)', iconeCor: 'var(--warning)' },
   solicitantes_ativos: { cls: 'kpi-success', cor: 'var(--success)', iconeBg: 'rgba(46,204,113,0.12)', iconeCor: 'var(--success)' },
   taxa_duplicidade: { cls: 'kpi-danger', cor: '#e74c3c', iconeBg: 'rgba(231,76,60,0.12)', iconeCor: '#e74c3c' }
@@ -774,11 +866,11 @@ const KPI_ESTILOS = {
 const KPI_SUBTITULOS = {
   gasto_por_veiculo: 'Soma dos gastos por veículo',
   ticket_medio: 'Média por pedido no período',
-  desvio_preco: 'Itens fora da média histórica',
+  pedidos_em_atencao: 'Aguardando tratamento na Atenção',
   tempo_aprovacao: 'Do pedido até a aprovação',
   pedidos_parados: '+48h sem atualização',
   taxa_rejeicao: 'Pedidos rejeitados no período',
-  lead_time_fornecedor: 'Do pedido até a entrega real',
+  tempo_resposta_triagem: 'Da criação até sair da Atenção',
   concentracao_fornecedor: 'Fatia do maior fornecedor',
   solicitantes_ativos: 'Usuários que abriram pedidos',
   taxa_duplicidade: 'Pedidos duplicados detectados'
@@ -860,14 +952,18 @@ function abrirSeletorPeriodoKpi() {
     </div>
     <div class="modal-body">
       <div class="form-check mb-2">
-        <input class="form-check-input" type="radio" name="kpiPeriodoTipo" id="kpiPeriodoTodo" value="todo" ${!kpiPeriodo?.dataInicio ? 'checked' : ''}>
+        <input class="form-check-input" type="radio" name="kpiPeriodoTipo" id="kpiPeriodoUltimos30" value="ultimos30" ${kpiPeriodoModo === 'ultimos30' ? 'checked' : ''}>
+        <label class="form-check-label" for="kpiPeriodoUltimos30">Últimos 30 dias <span class="text-muted small">(padrão)</span></label>
+      </div>
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="radio" name="kpiPeriodoTipo" id="kpiPeriodoTodo" value="todo" ${kpiPeriodoModo === 'todo' ? 'checked' : ''}>
         <label class="form-check-label" for="kpiPeriodoTodo">Todo o período</label>
       </div>
       <div class="form-check mb-3">
-        <input class="form-check-input" type="radio" name="kpiPeriodoTipo" id="kpiPeriodoEspecifico" value="especifico" ${kpiPeriodo?.dataInicio ? 'checked' : ''}>
+        <input class="form-check-input" type="radio" name="kpiPeriodoTipo" id="kpiPeriodoEspecifico" value="especifico" ${kpiPeriodoModo === 'especifico' ? 'checked' : ''}>
         <label class="form-check-label" for="kpiPeriodoEspecifico">Período específico</label>
       </div>
-      <div id="kpiPeriodoDatas" style="display:${kpiPeriodo?.dataInicio ? 'block' : 'none'};">
+      <div id="kpiPeriodoDatas" style="display:${kpiPeriodoModo === 'especifico' ? 'block' : 'none'};">
         <div class="row g-2">
           <div class="col-6">
             <label class="form-label small">Data inicio</label>
@@ -895,18 +991,49 @@ function abrirSeletorPeriodoKpi() {
 }
 
 function aplicarPeriodoKpi() {
-  const especifico = document.getElementById('kpiPeriodoEspecifico').checked;
-  if (especifico) {
+  const modo = document.querySelector('input[name="kpiPeriodoTipo"]:checked').value;
+  if (modo === 'especifico') {
     const inicio = document.getElementById('kpiDataInicio').value;
     const fim = document.getElementById('kpiDataFim').value;
     if (!inicio || !fim) { alert('Selecione as duas datas do periodo.'); return; }
     if (inicio > fim) { alert('A data inicial deve ser anterior à data final.'); return; }
     kpiPeriodo = { dataInicio: inicio, dataFim: fim };
-  } else {
+  } else if (modo === 'todo') {
     kpiPeriodo = null;
+  } else {
+    kpiPeriodo = ultimosNDias(30);
   }
+  kpiPeriodoModo = modo;
   _lastModal?.hide();
   carregarKpis();
+}
+
+function abrirAjudaKpis() {
+  const itensKpi = (KPI_LISTA || []).map(k => `
+    <li style="margin-bottom:10px;">
+      <strong>${escapeHtml(k.label)}</strong>
+      ${k.sem_periodo ? '<span class="badge bg-light text-dark border ms-1" style="font-size:10px;">Situação atual</span>' : ''}
+      <div class="text-muted small">${escapeHtml(k.descricao || '')}</div>
+    </li>
+  `).join('');
+
+  modal(`
+    <div class="modal-header">
+      <h5 class="modal-title fw-bold"><i class="fa-solid fa-circle-question me-2"></i>Como funciona o Dashboard</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+      <p>Os indicadores abaixo mostram, por padrão, os dados dos <strong>últimos 30 dias</strong> — essa janela anda sozinha dia a dia (por exemplo, hoje mostra os últimos 30 dias contados a partir de hoje; amanhã, os últimos 30 dias contados a partir de amanhã).</p>
+      <p>Use o botão <strong>Período</strong> para trocar isso por <strong>Todo o período</strong> (desde o início do sistema) ou por um <strong>intervalo de datas específico</strong> escolhido por você.</p>
+      <p>Indicadores marcados como <span class="badge bg-light text-dark border" style="font-size:10px;">Situação atual</span> mostram um número "de agora" (ex.: quantos pedidos estão parados neste momento) e não mudam com o período escolhido — eles refletem a fila atual, não um histórico.</p>
+      <hr>
+      <p class="fw-bold mb-2">O que cada indicador mostra:</p>
+      <ul style="padding-left:18px;">${itensKpi || '<li class="text-muted">Carregue o Dashboard primeiro para ver a lista de indicadores.</li>'}</ul>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Entendi</button>
+    </div>
+  `, 'lg');
 }
 
 function kpiExportUrl(chave, formato) {
@@ -1222,12 +1349,30 @@ async function abrirKpiDetalhe(chave) {
 window.placaAtualConsultada = null;
 
 function abrirSeletorPeriodo(formato) {
+  const temPlaca = !!window.placaAtualConsultada;
+  const statusFilterHtml = temPlaca ? `
+      <p class="small fw-bold mb-2" style="margin-bottom:6px;">Status dos pedidos</p>
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="radio" name="periodoStatusTipo" id="periodoStatusPendente" value="pendente">
+        <label class="form-check-label" for="periodoStatusPendente">Pendente</label>
+      </div>
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="radio" name="periodoStatusTipo" id="periodoStatusComprado" value="comprado" checked>
+        <label class="form-check-label" for="periodoStatusComprado">Comprado <span class="text-muted small">(todos os demais status)</span></label>
+      </div>
+      <div class="form-check mb-3">
+        <input class="form-check-input" type="radio" name="periodoStatusTipo" id="periodoStatusCancelado" value="cancelado">
+        <label class="form-check-label" for="periodoStatusCancelado">Cancelado</label>
+      </div>
+      <hr class="my-3">` : '';
+
   modal(`
     <div class="modal-header">
       <h5 class="modal-title fw-bold">Selecionar Periodo do Relatorio</h5>
       <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
     </div>
     <div class="modal-body">
+      ${statusFilterHtml}
       <div class="form-check mb-2">
         <input class="form-check-input" type="radio" name="periodoTipo" id="periodoTodo" value="todo" checked>
         <label class="form-check-label" for="periodoTodo">Todo o periodo</label>
@@ -1272,6 +1417,9 @@ function gerarRelatorioComPeriodo(formato) {
     if (!inicio || !fim) { alert('Selecione as duas datas do periodo.'); return; }
     query += `&dataInicio=${inicio}&dataFim=${fim}`;
   }
+
+  const statusSel = document.querySelector('input[name="periodoStatusTipo"]:checked');
+  if (statusSel) query += `&status=${encodeURIComponent(statusSel.value)}`;
 
   const placaAtual = window.placaAtualConsultada;
   const base = placaAtual
@@ -1353,19 +1501,117 @@ PAGES.profile = async function () {
         </div>
       </div>
       <div class="col-lg-8">
-        <div class="card p-4">
-          <h5 class="fw-bold mb-3">Permissões do Perfil</h5>
-          <p class="text-muted">${info.desc}</p>
-          <hr>
-          <h6 class="fw-bold mb-2">Informações</h6>
-          <div class="row g-2">
-            <div class="col-md-6"><small class="text-muted">ID:</small><p class="mb-0">${user.id}</p></div>
-            <div class="col-md-6"><small class="text-muted">Usuário:</small><p class="mb-0">@${user.nick}</p></div>
+        <ul class="nav nav-tabs mb-3" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#profileTabInfo" type="button" role="tab"><i class="bi bi-person me-1"></i>Informações</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#profileTabSecurity" type="button" role="tab"><i class="bi bi-shield-lock me-1"></i>Segurança</button>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane fade show active" id="profileTabInfo" role="tabpanel">
+            <div class="card p-4">
+              <h5 class="fw-bold mb-3">Permissões do Perfil</h5>
+              <p class="text-muted">${info.desc}</p>
+              <hr>
+              <h6 class="fw-bold mb-2">Informações</h6>
+              <div class="row g-2">
+                <div class="col-md-6"><small class="text-muted">ID:</small><p class="mb-0">${user.id}</p></div>
+                <div class="col-md-6"><small class="text-muted">Usuário:</small><p class="mb-0">@${user.nick}</p></div>
+              </div>
+            </div>
+          </div>
+          <div class="tab-pane fade" id="profileTabSecurity" role="tabpanel">
+            <div class="card p-4">
+              <h5 class="fw-bold mb-1">Alterar Senha</h5>
+              <p class="text-muted mb-3">Defina uma nova senha para o seu acesso.</p>
+              <div class="alert alert-warning py-2 mb-3 d-flex align-items-start gap-2">
+                <i class="bi bi-exclamation-triangle-fill mt-1"></i>
+                <div class="small">
+                  A nova senha deve conter:<br>
+                  <span class="text-success"><i class="bi bi-check-lg"></i></span> No mínimo <strong>10 caracteres</strong><br>
+                  <span class="text-success"><i class="bi bi-check-lg"></i></span> Pelo menos uma <strong>letra</strong><br>
+                  <span class="text-success"><i class="bi bi-check-lg"></i></span> Pelo menos um <strong>número</strong><br>
+                  <span class="text-success"><i class="bi bi-check-lg"></i></span> Pelo menos um <strong>caractere especial</strong> (ex: @, #, !, $)
+                </div>
+              </div>
+              <form id="profilePwForm" autocomplete="off">
+                <div class="mb-3">
+                  <label for="ppCurrent" class="form-label">Senha atual</label>
+                  <input type="password" class="form-control" id="ppCurrent" autocomplete="current-password">
+                </div>
+                <div class="mb-3">
+                  <label for="ppNew" class="form-label">Nova senha</label>
+                  <input type="password" class="form-control" id="ppNew" autocomplete="new-password">
+                </div>
+                <div class="mb-3">
+                  <label for="ppConfirm" class="form-label">Confirmar nova senha</label>
+                  <input type="password" class="form-control" id="ppConfirm" autocomplete="new-password">
+                </div>
+                <div id="ppError" class="alert alert-danger py-2 d-none" role="alert"></div>
+                <div id="ppSuccess" class="alert alert-success py-2 d-none" role="alert">Senha alterada com sucesso!</div>
+                <button type="submit" class="btn btn-primary" id="ppSubmitBtn">
+                  <span id="ppSubmitText">Salvar nova senha</span>
+                  <span class="spinner-border spinner-border-sm d-none" id="ppSubmitSpinner"></span>
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       </div>
     </div>`;
+  initProfilePasswordForm();
 };
+
+function initProfilePasswordForm() {
+  const form = document.getElementById('profilePwForm');
+  if (!form) return;
+  const cur = document.getElementById('ppCurrent');
+  const neu = document.getElementById('ppNew');
+  const conf = document.getElementById('ppConfirm');
+  const errBox = document.getElementById('ppError');
+  const okBox = document.getElementById('ppSuccess');
+  const btn = document.getElementById('ppSubmitBtn');
+  const txt = document.getElementById('ppSubmitText');
+  const spin = document.getElementById('ppSubmitSpinner');
+
+  function showErr(msg) {
+    errBox.textContent = msg || '';
+    errBox.classList.toggle('d-none', !msg);
+    okBox.classList.add('d-none');
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    showErr('');
+    okBox.classList.add('d-none');
+    const current = cur.value;
+    const next = neu.value;
+    const confirm = conf.value;
+    if (!current) return showErr('Informe a senha atual.');
+    if (!next || next.length < 10) return showErr('A nova senha deve ter no mínimo 10 caracteres.');
+    if (!/[A-Za-zÀ-ÿ]/.test(next) || !/\d/.test(next)) return showErr('A nova senha deve conter ao menos uma letra e um número.');
+    if (!/[^A-Za-zÀ-ÿ0-9]/.test(next)) return showErr('A nova senha deve conter ao menos um caractere especial (ex: @, #, !, $).');
+    if (next !== confirm) return showErr('A confirmação da nova senha não confere.');
+
+    btn.disabled = true;
+    spin.classList.remove('d-none');
+    txt.textContent = 'Salvando...';
+    try {
+      await API.post('/auth/change-password', { currentPassword: current, newPassword: next });
+      cur.value = ''; neu.value = ''; conf.value = '';
+      okBox.classList.remove('d-none');
+      showErr('');
+    } catch (err) {
+      showErr(apiErrorMsg(err) || 'Erro ao alterar a senha. Tente novamente.');
+    } finally {
+      btn.disabled = false;
+      spin.classList.add('d-none');
+      txt.textContent = 'Salvar nova senha';
+    }
+  });
+}
 
 // ---------- VEHICLES ----------
 PAGES.vehicles = async function (pg = 1, q = '') {
@@ -1416,14 +1662,18 @@ async function openVehicle(id) {
         <form id="vehicleForm">
           <div class="row g-3">
             <div class="col-md-3"><label class="form-label">Placa *</label><input class="form-control" name="placa" value="${v.placa}" required style="text-transform:uppercase" maxlength="7"></div>
-            <div class="col-md-3"><label class="form-label">Marca</label>
-              <select class="form-select" name="marca_id" id="vmarca">
+            <div class="col-md-3"><label class="form-label">Marca *</label>
+              <select class="form-select" name="marca_id" id="vmarca" required>
                 <option value="">Selecione...</option>
                 ${marcas.map(m => `<option value="${m.id}" ${v.marca_id == m.id ? 'selected' : ''}>${m.nome}</option>`).join('')}
               </select></div>
-            <div class="col-md-3"><label class="form-label">Modelo *</label><input class="form-control" name="modelo_nome" id="vmodelo" value="${v.modelo_nome || ''}" required placeholder="Digite o modelo"></div>
+            <div class="col-md-3"><label class="form-label">Modelo *</label>
+              <select class="form-select" name="modelo_id" id="vmodelo" required>
+                <option value="">Selecione a marca primeiro</option>
+              </select>
+              <input class="form-control mt-1" name="modelo_novo_nome" id="vmodeloNovo" placeholder="Nome do novo modelo" style="display:none"></div>
             <div class="col-md-3"><label class="form-label">Ano *</label><input class="form-control" name="ano" type="number" value="${v.ano}" required min="1900" max="2099"></div>
-            <div class="col-md-3"><label class="form-label">Motor</label><input class="form-control" name="motor" value="${v.motor || ''}"></div>
+            <div class="col-md-3"><label class="form-label">Motor</label><input class="form-control" name="motor" value="${v.motor || ''}" style="text-transform:uppercase"></div>
             <div class="col-12"><label class="form-label">Observações</label><textarea class="form-control" name="observacoes" rows="2">${v.observacoes || ''}</textarea></div>
           </div>
         </form>
@@ -1433,27 +1683,58 @@ async function openVehicle(id) {
         <button class="btn btn-primary" id="vehicleSubmit">${isEdit ? 'Atualizar' : 'Salvar'}</button>
       </div>`, 'lg');
 
+    async function carregarModelosPorMarca(marcaId, modeloSelecionadoId) {
+      const sel = document.getElementById('vmodelo');
+      const novo = document.getElementById('vmodeloNovo');
+      novo.style.display = 'none';
+      novo.required = false;
+      if (!marcaId) {
+        sel.innerHTML = '<option value="">Selecione a marca primeiro</option>';
+        sel.required = true;
+        return;
+      }
+      sel.innerHTML = '<option value="">Carregando...</option>';
+      const todosModelos = await API.get('/modelos');
+      const doMarca = todosModelos
+        .filter(m => m.marca_id === Number(marcaId))
+        .sort((a, b) => a.nome.localeCompare(b.nome));
+      sel.innerHTML = '<option value="">Selecione...</option>' +
+        doMarca.map(m => `<option value="${m.id}" ${modeloSelecionadoId && m.id === Number(modeloSelecionadoId) ? 'selected' : ''}>${m.nome}</option>`).join('') +
+        '<option value="novo">+ Cadastrar novo modelo</option>';
+    }
+
+    document.getElementById('vmarca').addEventListener('change', e => carregarModelosPorMarca(e.target.value));
+
+    document.getElementById('vmodelo').addEventListener('change', e => {
+      const novo = document.getElementById('vmodeloNovo');
+      const ehNovo = e.target.value === 'novo';
+      novo.style.display = ehNovo ? 'block' : 'none';
+      novo.required = ehNovo;
+    });
+
     document.getElementById('vehicleSubmit').addEventListener('click', async () => {
       const fd = Object.fromEntries(new FormData(document.getElementById('vehicleForm')));
       if (!fd.marca_id) { toast('Selecione a marca', 'warning'); return; }
-      if (!fd.modelo_nome?.trim()) { toast('Informe o modelo', 'warning'); return; }
+      if (!fd.modelo_id) { toast('Selecione o modelo', 'warning'); return; }
       fd.placa = fd.placa.toUpperCase();
       fd.ano = parseInt(fd.ano);
-      fd.marca_id = parseInt(fd.marca_id);
       try {
-        const modelos = await API.get('/modelos');
-        let modelo = modelos.find(m => m.marca_id === fd.marca_id && m.nome.toLowerCase() === fd.modelo_nome.trim().toLowerCase());
-        if (!modelo) {
-          modelo = await API.post('/modelos', { nome: fd.modelo_nome.trim(), marca_id: fd.marca_id });
+        if (fd.modelo_id === 'novo') {
+          if (!fd.modelo_novo_nome?.trim()) { toast('Informe o nome do novo modelo', 'warning'); return; }
+          const modelo = await API.post('/modelos', { nome: fd.modelo_novo_nome.trim(), marca_id: parseInt(fd.marca_id) });
+          fd.modelo_id = modelo.id;
+        } else {
+          fd.modelo_id = parseInt(fd.modelo_id);
         }
-        fd.modelo_id = modelo.id;
-        delete fd.modelo_nome;
+        delete fd.modelo_novo_nome;
         delete fd.marca_id;
         if (isEdit) { await API.put(`/vehicles/${id}`, fd); toast('Veículo atualizado'); }
         else { await API.post('/vehicles', fd); toast('Veículo cadastrado'); }
         m.hide(); PAGES.vehicles();
       } catch (err) { toast(err.error || 'Erro ao salvar', 'danger'); }
     });
+
+    if (isEdit && v.marca_id) await carregarModelosPorMarca(v.marca_id, v.modelo_id);
   } catch (err) { toast(err.error || 'Erro ao carregar dados', 'danger'); }
 }
 
@@ -1639,9 +1920,9 @@ async function openPart(id) {
     <div class="modal-header"><h5 class="modal-title fw-bold">${isEdit ? 'Editar' : 'Nova'} Peça</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
       <form id="partForm"><div class="row g-3">
-        <div class="col-md-6"><label class="form-label">Nome *</label><input class="form-control" name="nome" value="${p.nome}" required></div>
-        <div class="col-md-3"><label class="form-label">Cód. Interno *</label><input class="form-control" name="codigo_interno" value="${p.codigo_interno}" required></div>
-        <div class="col-md-3"><label class="form-label">Cód. Fabricante</label><input class="form-control" name="codigo_fabricante" value="${p.codigo_fabricante || ''}"></div>
+        <div class="col-md-6"><label class="form-label">Nome *</label><input class="form-control" name="nome" value="${p.nome}" required style="text-transform:uppercase"></div>
+        <div class="col-md-3"><label class="form-label">Cód. Interno *</label><input class="form-control" name="codigo_interno" value="${p.codigo_interno}" required style="text-transform:uppercase"></div>
+        <div class="col-md-3"><label class="form-label">Cód. Fabricante</label><input class="form-control" name="codigo_fabricante" value="${p.codigo_fabricante || ''}" style="text-transform:uppercase"></div>
         <div class="col-md-4"><label class="form-label">Categoria</label><select class="form-select" name="categoria_id"><option value="">Sem categoria</option>${cats.map(c => `<option value="${c.id}" ${p.categoria_id == c.id ? 'selected' : ''}>${c.nome}</option>`).join('')}</select></div>
         <div class="col-md-2"><label class="form-label">Unidade</label><select class="form-select" name="unidade"><option value="un">Unidade</option><option value="par" ${p.unidade==='par'?'selected':''}>Par</option><option value="l" ${p.unidade==='l'?'selected':''}>Litro</option><option value="kg" ${p.unidade==='kg'?'selected':''}>Kg</option></select></div>
         <div class="col-md-3"><label class="form-label">Estoque</label><input class="form-control" name="estoque" type="number" value="${p.estoque}"></div>
@@ -1654,6 +1935,9 @@ async function openPart(id) {
     </div>`, 'lg');
   document.getElementById('partSubmit').addEventListener('click', async () => {
     const fd = Object.fromEntries(new FormData(document.getElementById('partForm')));
+    fd.nome = fd.nome.toUpperCase();
+    fd.codigo_interno = fd.codigo_interno.toUpperCase();
+    fd.codigo_fabricante = fd.codigo_fabricante ? fd.codigo_fabricante.toUpperCase() : fd.codigo_fabricante;
     fd.estoque = parseInt(fd.estoque) || 0; fd.valor_medio = parseFloat(fd.valor_medio) || 0;
     fd.categoria_id = fd.categoria_id ? parseInt(fd.categoria_id) : null;
     try {
@@ -1703,8 +1987,8 @@ async function openFornecedor(id) {
     <div class="modal-header"><h5 class="modal-title fw-bold">${isEdit ? 'Editar' : 'Novo'} Fornecedor</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
       <form id="fornForm"><div class="row g-3">
-        <div class="col-md-6"><label class="form-label">Nome *</label><input class="form-control" name="nome" value="${f.nome}" required></div>
-        <div class="col-md-6"><label class="form-label">Contato</label><input class="form-control" name="contato" value="${f.contato || ''}"></div>
+        <div class="col-md-6"><label class="form-label">Razão Social *</label><input class="form-control" name="razao_social" value="${f.razao_social || ''}" required style="text-transform:uppercase"></div>
+        <div class="col-md-6"><label class="form-label">Nome Fantasia</label><input class="form-control" name="nome_fantasia" value="${f.nome_fantasia || ''}" style="text-transform:uppercase"></div>
         <div class="col-md-4"><label class="form-label">Telefone</label><input class="form-control" name="telefone" value="${f.telefone || ''}"></div>
         <div class="col-md-4"><label class="form-label">E-mail</label><input class="form-control" name="email" type="email" value="${f.email || ''}"></div>
         <div class="col-md-4"><label class="form-label">Endereço</label><input class="form-control" name="endereco" value="${f.endereco || ''}"></div>
@@ -1717,6 +2001,8 @@ async function openFornecedor(id) {
     </div>`);
   document.getElementById('fornSubmit').addEventListener('click', async () => {
     const fd = Object.fromEntries(new FormData(document.getElementById('fornForm')));
+    if (fd.razao_social) fd.razao_social = fd.razao_social.toUpperCase();
+    if (fd.nome_fantasia) fd.nome_fantasia = fd.nome_fantasia.toUpperCase();
     try {
       if (isEdit) { await API.put(`/fornecedores/${id}`, fd); toast('Fornecedor atualizado'); }
       else { await API.post('/fornecedores', fd); toast('Fornecedor criado'); }
@@ -1747,12 +2033,23 @@ function buildOrdersUrl(pg, state) {
 }
 
 function readOrderFilters() {
+  const periodoDias = document.getElementById('orderPeriodoFilter')?.value || '';
+  let dataInicio = '';
+  let dataFim = '';
+  if (periodoDias) {
+    const hoje = new Date();
+    dataFim = hoje.toISOString().slice(0, 10);
+    const inicio = new Date(hoje);
+    inicio.setDate(inicio.getDate() - Number(periodoDias));
+    dataInicio = inicio.toISOString().slice(0, 10);
+  }
   return {
     status: document.getElementById('orderStatusFilter')?.value || '',
     solicitanteId: document.getElementById('orderSolicitanteFilter')?.value || '',
     search: document.getElementById('orderSearchFilter')?.value || '',
-    dataInicio: document.getElementById('orderDataInicioFilter')?.value || '',
-    dataFim: document.getElementById('orderDataFimFilter')?.value || ''
+    periodoDias,
+    dataInicio,
+    dataFim
   };
 }
 
@@ -1775,7 +2072,7 @@ async function renderOrdersPage(url, pg, state) {
         API.get('/users/list-dropdown').catch(() => []),
       ]);
       const isOficinaOrd = user.perfil === 'oficina';
-      const { status = '', solicitanteId = '', search = '', dataInicio = '', dataFim = '' } = state;
+      const { status = '', solicitanteId = '', search = '', periodoDias = '' } = state;
       const userOpts = (Array.isArray(users) ? users : []).map(u =>
         `<option value="${u.id}"${String(u.id) === solicitanteId ? ' selected' : ''}>${u.nome}</option>`
       ).join('');
@@ -1784,7 +2081,7 @@ async function renderOrdersPage(url, pg, state) {
         <div class="d-flex gap-2 align-items-center flex-wrap">
           <div class="input-group input-group-sm" style="width:auto;">
             <span class="input-group-text"><i class="bi bi-upc-scan"></i></span>
-            <input type="text" class="form-control" placeholder="Código do pedido..." id="orderSearchFilter" value="${escapeHtml(search)}" style="min-width:200px" onkeydown="if(event.key==='Enter')applyOrderFilters()">
+            <input type="text" class="form-control" placeholder="Código do pedido ou placa..." id="orderSearchFilter" value="${escapeHtml(search)}" style="min-width:200px" onkeydown="if(event.key==='Enter')applyOrderFilters()">
           </div>
           <select class="form-select form-select-sm" id="orderStatusFilter" style="width:auto;" onchange="applyOrderFilters()">
             <option value="">Todos os status</option>
@@ -1794,14 +2091,13 @@ async function renderOrdersPage(url, pg, state) {
             <option value="">Todos os solicitantes</option>
             ${userOpts}
           </select>
-          <div class="input-group input-group-sm" style="width:auto;">
-            <span class="input-group-text">De</span>
-            <input type="date" class="form-control" id="orderDataInicioFilter" value="${dataInicio}" onchange="applyOrderFilters()">
-          </div>
-          <div class="input-group input-group-sm" style="width:auto;">
-            <span class="input-group-text">Até</span>
-            <input type="date" class="form-control" id="orderDataFimFilter" value="${dataFim}" onchange="applyOrderFilters()">
-          </div>
+          <select class="form-select form-select-sm" id="orderPeriodoFilter" style="width:auto;" onchange="applyOrderFilters()">
+            <option value="">Todo o período</option>
+            <option value="7"${periodoDias === '7' ? ' selected' : ''}>Últimos 7 dias</option>
+            <option value="15"${periodoDias === '15' ? ' selected' : ''}>Últimos 15 dias</option>
+            <option value="30"${periodoDias === '30' ? ' selected' : ''}>Últimos 30 dias</option>
+            <option value="60"${periodoDias === '60' ? ' selected' : ''}>Últimos 60 dias</option>
+          </select>
         </div>
         <button class="btn btn-primary btn-sm" onclick="openOrder()"><i class="bi bi-plus-lg me-1"></i>Novo Pedido</button>
       </div>
@@ -1970,6 +2266,7 @@ function createEntregaPage(entregaFilter, label) {
 createOrdersPage('pendente', 'Pedidos Pendentes');
 createOrdersPage('aprovado', 'Pedidos Aprovados');
 createOrdersPage('aguardando_aprovacao', 'Pedidos Aguardando Aprovação');
+  createOrdersPage('aguardando_autorizacao', 'Pedidos Aguardando Autorização');
 createOrdersPage('comprado', 'Pedidos Comprados');
 
 // Páginas de entrega
@@ -2053,6 +2350,22 @@ function createUrgentesPage(label) {
 createUrgentesPage('Pedidos de Atenção');
 PAGES.urgentes = PAGES.orders_urgentes;
 
+function fecharEAualizarSituacao() {
+  if (_lastModal) _lastModal.hide();
+  if (currentPage === 'dashboard') {
+    const placa = window.placaAtualConsultada;
+    PAGES.dashboard().then(() => {
+      if (placa) {
+        const input = document.getElementById('placaInput');
+        if (input) input.value = placa;
+        buscarPorPlaca(placa);
+      }
+    });
+    return;
+  }
+  if (PAGES[currentPage]) PAGES[currentPage]();
+}
+
 async function viewOrder(id) {
   try {
     const o = await API.get(`/orders/${id}`);
@@ -2067,7 +2380,7 @@ async function viewOrder(id) {
 
     const statusBadgeClass = {
       pendente: 'pm-badge-neutral', em_compra: 'pm-badge-info',
-      aguardando_aprovacao: 'pm-badge-warning', novo_orcamento: 'pm-badge-warning',
+      aguardando_aprovacao: 'pm-badge-warning', aguardando_autorizacao: 'pm-badge-warning', novo_orcamento: 'pm-badge-warning',
       aprovado: 'pm-badge-success',
       rejeitado: 'pm-badge-danger', comprado: 'pm-badge-info',
       concluido: 'pm-badge-success'
@@ -2096,8 +2409,10 @@ async function viewOrder(id) {
     const showActions = canManage && !['concluido', 'rejeitado'].includes(o.status);
 
     const precisaDiretor = Number(o.valor_total) > DIRECTOR_APPROVAL_LIMIT;
-    const canApprove = o.status === 'aguardando_aprovacao'
-      && (precisaDiretor ? user.perfil === 'diretor' : (Number(o.usuario_id) === Number(user.id) || user.perfil === 'logistica'));
+    const isOwner = Number(o.usuario_id) === Number(user.id);
+    const canApprove = o.status === 'aguardando_aprovacao' && isOwner;
+    const podeAutorizar = o.status === 'aguardando_autorizacao' && user.perfil === 'diretor';
+    const aguardandoAutorizacao = o.status === 'aguardando_autorizacao';
 
     const hasOC = !!(o.ordens_compra && o.ordens_compra.length > 0);
     const nextLogisticsAction = getNextLogisticsAction(o);
@@ -2149,36 +2464,44 @@ async function viewOrder(id) {
       if (nextLogisticsAction) {
         mHtml += '            <button class="pm-btn pm-btn-success pm-btn-sm" id="advanceOrderBtn"><i data-lucide="arrow-right-circle"></i> ' + escapeHtml(nextLogisticsAction.label) + '</button>';
       }
-      mHtml += '            <button class="pm-btn pm-btn-danger pm-btn-sm" id="cancelOrderBtn"><i data-lucide="x"></i> Cancelar Pedido</button>';
+      if (user.perfil === 'logistica' && ['pendente', 'em_compra', 'novo_orcamento'].includes(o.status)) {
+        mHtml += '            <button class="pm-btn pm-btn-danger pm-btn-sm" id="cancelOrderBtn"><i data-lucide="x"></i> Cancelar Pedido</button>';
+      }
       mHtml += '          </div>';
       mHtml += '        </div>';
       mHtml += '      </div>';
     }
     if (canApprove) {
       mHtml += '      <div class="pm-section">';
-      mHtml += '        <div class="pm-section-title"><i data-lucide="check-circle"></i> Aprova\u00e7\u00e3o</div>';
+      mHtml += '        <div class="pm-section-title"><i data-lucide="check-circle"></i> Confirma\u00e7\u00e3o de Compra</div>';
       mHtml += '        <div class="pm-oc-area" style="border-color:rgba(234,179,8,0.2);background:rgba(234,179,8,0.04);">';
       mHtml += '          <div class="pm-oc-label"><strong>Cota\u00e7\u00e3o pronta.</strong> Valor: ' + fmtCurrency(o.valor_total) + (o.previsao_entrega ? ' \u00b7 Previs\u00e3o de entrega: ' + fmtDate(o.previsao_entrega) : '') + '.</div>';
       if (precisaDiretor) {
-        mHtml += '          <div class="pm-oc-label" style="color:#b45309;"><i data-lucide="shield-alert"></i> Pedido acima de ' + fmtCurrency(DIRECTOR_APPROVAL_LIMIT) + ' requer autoriza\u00e7\u00e3o do diretor.</div>';
+        mHtml += '          <div class="pm-oc-label" style="color:#b45309;"><i data-lucide="shield-alert"></i> Pedido acima de ' + fmtCurrency(DIRECTOR_APPROVAL_LIMIT) + ': ao confirmar, ele ser\u00e1 enviado para a autoriza\u00e7\u00e3o do diretor.</div>';
       }
       mHtml += '          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">';
-      if (precisaDiretor) {
-        mHtml += '            <button class="pm-btn pm-btn-success pm-btn-sm" id="approveQuoteBtn"><i data-lucide="check-circle"></i> Aprovar</button>';
-        mHtml += '            <button class="pm-btn pm-btn-danger pm-btn-sm" id="cancelQuoteBtn"><i data-lucide="x-circle"></i> Rejeitar</button>';
-      } else {
-        mHtml += '            <button class="pm-btn pm-btn-success pm-btn-sm" id="approveQuoteBtn"><i data-lucide="check-circle"></i> Comprar</button>';
-        mHtml += '            <button class="pm-btn pm-btn-warning pm-btn-sm" id="requestQuoteBtn"><i data-lucide="refresh-cw"></i> Novo Or\u00e7amento</button>';
-        mHtml += '            <button class="pm-btn pm-btn-danger pm-btn-sm" id="cancelQuoteBtn"><i data-lucide="x-circle"></i> Cancelado</button>';
-      }
+      mHtml += '            <button class="pm-btn pm-btn-success pm-btn-sm" id="approveQuoteBtn"><i data-lucide="check-circle"></i> Confirmar Compra</button>';
+      mHtml += '            <button class="pm-btn pm-btn-warning pm-btn-sm" id="requestQuoteBtn"><i data-lucide="refresh-cw"></i> Novo Or\u00e7amento</button>';
+      mHtml += '            <button class="pm-btn pm-btn-danger pm-btn-sm" id="cancelQuoteBtn"><i data-lucide="x-circle"></i> Cancelar</button>';
       mHtml += '          </div>';
       mHtml += '        </div>';
       mHtml += '      </div>';
-    } else if (precisaDiretor && o.status === 'aguardando_aprovacao') {
+    } else if (podeAutorizar) {
       mHtml += '      <div class="pm-section">';
       mHtml += '        <div class="pm-section-title"><i data-lucide="shield-check"></i> Autoriza\u00e7\u00e3o do Diretor</div>';
       mHtml += '        <div class="pm-oc-area" style="border-color:rgba(234,179,8,0.2);background:rgba(234,179,8,0.04);">';
-      mHtml += '          <div class="pm-oc-label"><i data-lucide="clock"></i> Este pedido est\u00e1 acima de ' + fmtCurrency(DIRECTOR_APPROVAL_LIMIT) + ' e aguarda a autoriza\u00e7\u00e3o do diretor.</div>';
+      mHtml += '          <div class="pm-oc-label"><strong>Compra confirmada pelo solicitante.</strong> Valor: ' + fmtCurrency(o.valor_total) + '. Pedido acima de ' + fmtCurrency(DIRECTOR_APPROVAL_LIMIT) + '.</div>';
+      mHtml += '          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">';
+      mHtml += '            <button class="pm-btn pm-btn-success pm-btn-sm" id="approveQuoteBtn"><i data-lucide="check-circle"></i> Autorizar</button>';
+      mHtml += '            <button class="pm-btn pm-btn-danger pm-btn-sm" id="cancelQuoteBtn"><i data-lucide="x-circle"></i> Rejeitar</button>';
+      mHtml += '          </div>';
+      mHtml += '        </div>';
+      mHtml += '      </div>';
+    } else if (aguardandoAutorizacao) {
+      mHtml += '      <div class="pm-section">';
+      mHtml += '        <div class="pm-section-title"><i data-lucide="shield-check"></i> Autoriza\u00e7\u00e3o do Diretor</div>';
+      mHtml += '        <div class="pm-oc-area" style="border-color:rgba(234,179,8,0.2);background:rgba(234,179,8,0.04);">';
+      mHtml += '          <div class="pm-oc-label"><i data-lucide="clock"></i> Compra confirmada pelo solicitante. Este pedido aguarda a autoriza\u00e7\u00e3o do diretor.</div>';
       mHtml += '        </div>';
       mHtml += '      </div>';
     }
@@ -2330,7 +2653,7 @@ async function viewOrder(id) {
     });
 
     var approveBtn = document.getElementById('approveQuoteBtn');
-    if (approveBtn) approveBtn.addEventListener('click', function () { confirmQuoteApproval(id); });
+    if (approveBtn) approveBtn.addEventListener('click', function () { confirmQuoteApproval(id, o.status === 'aguardando_autorizacao' ? 'authorize' : 'approve'); });
     var cancelQuoteBtn = document.getElementById('cancelQuoteBtn');
     if (cancelQuoteBtn) cancelQuoteBtn.addEventListener('click', function () { openQuoteObservationModal(id, 'reject'); });
     var requestQuoteBtn = document.getElementById('requestQuoteBtn');
@@ -2365,7 +2688,7 @@ async function viewOrder(id) {
             await API.patch('/orders/' + id + '/entrega', { status_entrega: action.value });
           }
           toast('Pedido atualizado');
-          viewOrder(id);
+          fecharEAualizarSituacao();
         } catch (err) {
           toast(err.error || 'Erro ao atualizar pedido', 'danger');
           advanceBtn.disabled = false;
@@ -2541,22 +2864,22 @@ async function openOrder(id) {
       for (var _oi = 0; _oi < order.itens.length; _oi++) {
         var _item = order.itens[_oi];
         mHtml += '            <div class="pm-item-row' + (user.perfil === 'logistica' ? '' : ' pm-no-valor') + ' order-item">';
-        mHtml += '              <input type="text" class="pm-input pm-input-sm desc-input" placeholder="Descrição do item" value="' + escapeHtml(_item.item_nome || '') + '" required>';
+        mHtml += '              <input type="text" class="pm-input pm-input-sm desc-input" placeholder="Descrição do item" value="' + escapeHtml(_item.item_nome || '') + '" required style="text-transform:uppercase">';
         mHtml += '              <input type="number" class="pm-input pm-input-sm qtd-input" placeholder="Qtd" min="1" value="' + (_item.quantidade || 1) + '">';
         if (user.perfil === 'logistica') {
           mHtml += '              <input type="number" class="pm-input pm-input-sm valor-input" placeholder="Valor unit." step="0.01" required value="' + (_item.valor_unitario || '') + '">';
-          mHtml += '              <input type="text" class="pm-input pm-input-sm fornecedor-input" placeholder="Da onde vem a peça" required value="' + escapeHtml(_item.fornecedor_origem || '') + '">';
+          mHtml += '              <input type="text" class="pm-input pm-input-sm fornecedor-input" placeholder="Da onde vem a peça" required value="' + escapeHtml(_item.fornecedor_origem || '') + '" style="text-transform:uppercase">';
         }
         mHtml += '              <button type="button" class="pm-btn pm-btn-danger pm-btn-sm" onclick="this.closest(\'.order-item\').remove();calcTotal()"><i data-lucide="trash-2"></i></button>';
         mHtml += '            </div>';
       }
     } else {
       mHtml += '            <div class="pm-item-row' + (user.perfil === 'logistica' ? '' : ' pm-no-valor') + ' order-item">';
-      mHtml += '              <input type="text" class="pm-input pm-input-sm desc-input" placeholder="Descrição do item" required>';
+      mHtml += '              <input type="text" class="pm-input pm-input-sm desc-input" placeholder="Descrição do item" required style="text-transform:uppercase">';
       mHtml += '              <input type="number" class="pm-input pm-input-sm qtd-input" placeholder="Qtd" min="1" value="1">';
       if (user.perfil === 'logistica') {
         mHtml += '              <input type="number" class="pm-input pm-input-sm valor-input" placeholder="Valor unit." step="0.01" required>';
-        mHtml += '              <input type="text" class="pm-input pm-input-sm fornecedor-input" placeholder="Da onde vem a peça" required>';
+        mHtml += '              <input type="text" class="pm-input pm-input-sm fornecedor-input" placeholder="Da onde vem a peça" required style="text-transform:uppercase">';
       }
       mHtml += '              <button type="button" class="pm-btn pm-btn-danger pm-btn-sm" onclick="this.closest(\'.order-item\').remove();calcTotal()"><i data-lucide="trash-2"></i></button>';
       mHtml += '            </div>';
@@ -2681,14 +3004,14 @@ async function openOrder(id) {
       if (!veiculo_id) { toast('Selecione um veículo', 'warning'); return; }
       var itens = [...document.querySelectorAll('.order-item')].map(function (row) {
         var item = {
-          descricao: row.querySelector('.desc-input').value.trim(),
+          descricao: row.querySelector('.desc-input').value.trim().toUpperCase(),
           quantidade: parseInt(row.querySelector('.qtd-input').value) || 1
         };
         if (row.dataset.pecaId) item.peca_id = parseInt(row.dataset.pecaId);
         var valorInput = row.querySelector('.valor-input');
         if (valorInput) item.valor_unitario = parseFloat(valorInput.value) || 0;
         var fornecedorInput = row.querySelector('.fornecedor-input');
-        if (fornecedorInput) item.fornecedor_origem = fornecedorInput.value.trim();
+        if (fornecedorInput) item.fornecedor_origem = fornecedorInput.value.trim().toUpperCase();
         return item;
       }).filter(function (i) { return i.descricao; });
       if (!itens.length) { toast('Adicione pelo menos um item com descrição', 'warning'); return; }
@@ -2766,22 +3089,24 @@ async function delOrder(id) {
   catch (err) { toast(err.error || 'Erro ao excluir', 'danger'); }
 }
 
-async function confirmQuoteApproval(id) {
+async function confirmQuoteApproval(id, action) {
+  action = action || 'approve';
+  const isAuthorize = action === 'authorize';
   const btn = document.getElementById('approveQuoteBtn');
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
   }
   try {
-    await API.post(`/orders/${id}/approve`, {});
-    toast('Pedido confirmado');
-    viewOrder(id);
+    await API.post('/orders/' + id + (isAuthorize ? '/autorizar' : '/approve'), {});
+    toast(isAuthorize ? 'Pedido autorizado' : 'Pedido confirmado');
+    fecharEAualizarSituacao();
   } catch (err) {
     toast(err.error || 'Erro ao processar aprovação', 'danger');
     } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-check2-circle me-1"></i>' + (user.perfil === 'diretor' ? 'Aprovar' : 'Comprar');
+      btn.innerHTML = '<i class="bi bi-check2-circle me-1"></i>' + (isAuthorize ? 'Autorizar' : 'Confirmar Compra');
     }
   }
 }
@@ -2819,12 +3144,7 @@ function openQuoteObservationModal(id, action) {
     try {
       await API.post(`/orders/${id}/${isReject ? 'reject' : 'request-new-quote'}`, { motivo });
       toast(isReject ? 'Pedido cancelado' : 'Novo orçamento solicitado');
-      m.hide();
-      if (isReject) {
-        viewOrder(id);
-      } else {
-        openOrder(id);
-      }
+      fecharEAualizarSituacao();
     } catch (err) { toast(err.error || 'Erro ao processar', 'danger'); }
     finally { btn.disabled = false; btn.innerHTML = confirmLabel; }
   });
@@ -2877,9 +3197,14 @@ async function openUser(id) {
     <div class="modal-header"><h5 class="modal-title fw-bold">${isEdit ? 'Editar' : 'Novo'} Usuário</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
       <form id="userForm">
-        <div class="mb-3"><label class="form-label">Nome *</label><input class="form-control" name="nome" value="${escapeHtml(u.nome)}" placeholder="Nome do usuário" required></div>
+        <div class="mb-3"><label class="form-label">Nome *</label><input class="form-control" name="nome" value="${escapeHtml(u.nome)}" placeholder="Nome do usuário" required style="text-transform:uppercase"></div>
         <div class="mb-3"><label class="form-label">Setor *</label><select class="form-select" name="setor" required><option value="" disabled ${SETORES.includes(u.setor) ? '' : 'selected'}>Selecione o setor</option>${SETORES.map(s => `<option value="${s}" ${u.setor === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
-        <div class="mb-3"><label class="form-label">${isEdit ? 'Nova senha (deixe vazio para manter)' : 'Senha *'}</label><input class="form-control" name="senha" type="password" ${isEdit ? '' : 'required'}></div>
+        <div class="mb-3"><label class="form-label">${isEdit ? 'Nova senha (deixe vazio para manter)' : 'Senha *'}</label><input class="form-control" name="senha" type="password" ${isEdit ? '' : 'required'}>
+          <div class="alert alert-warning py-2 mt-2 mb-0 small d-flex align-items-start gap-2">
+            <i class="bi bi-exclamation-triangle-fill mt-1"></i>
+            <div>A senha deve conter <strong>10+ caracteres</strong>, com pelo menos uma <strong>letra</strong>, um <strong>número</strong> e um <strong>caractere especial</strong> (ex: @, #, !).${isEdit ? ' Se não quiser alterar, deixe vazio.' : ''}</div>
+          </div>
+        </div>
         <div class="mb-3"><label class="form-label">Perfil</label><select class="form-select" name="perfil">${Object.entries(ROLE_INFO).map(([p, i]) => `<option value="${p}" ${u.perfil===p?'selected':''}>${i.label}</option>`).join('')}</select></div>
         <div class="mb-3"><label class="form-label">Usuário *</label><input class="form-control" name="nick" value="${escapeHtml(u.nick)}" placeholder="Usuário usado no login" required></div>
         <div class="form-check"><input class="form-check-input" type="checkbox" name="ativo" value="1" ${u.ativo?'checked':''} id="userAtivo"><label class="form-check-label" for="userAtivo">Ativo</label></div>
@@ -2891,6 +3216,7 @@ async function openUser(id) {
     </div>`);
   document.getElementById('userSubmit').addEventListener('click', async () => {
     const fd = Object.fromEntries(new FormData(document.getElementById('userForm')));
+    fd.nome = fd.nome.toUpperCase();
     fd.ativo = fd.ativo ? 1 : 0;
     if (!fd.senha) delete fd.senha;
     if (fd.nick) fd.nick = fd.nick.trim().toLowerCase();
@@ -2898,7 +3224,7 @@ async function openUser(id) {
       if (isEdit) { await API.put(`/users/${id}`, fd); toast('Usuário atualizado'); }
       else { await API.post('/users', fd); toast('Usuário criado'); }
       m.hide(); PAGES.users();
-    } catch (err) { toast(err.error || 'Erro', 'danger'); }
+    } catch (err) { toast(apiErrorMsg(err), 'danger'); }
   });
 }
 
@@ -3167,3 +3493,19 @@ PAGES.audit = async function (pg = 1) {
     </div>${renderPagination(data, 'PAGES.audit')}</div>`;
   } catch (err) { c.innerHTML = `<div class="alert alert-danger">${err.error || 'Erro'}</div>`; }
 };
+
+(function iniciarVigiaInatividade() {
+  const LIMITE_MS = 60 * 60 * 1000;
+  let ultimoTimer = null;
+  const reiniciar = () => {
+    if (ultimoTimer) clearTimeout(ultimoTimer);
+    ultimoTimer = setTimeout(() => {
+      alert('Sua sessão expirou por inatividade. Faça login novamente.');
+      API.logout();
+    }, LIMITE_MS);
+  };
+  ['mousedown', 'keydown', 'touchstart', 'scroll'].forEach(evento =>
+    document.addEventListener(evento, reiniciar, { passive: true })
+  );
+  reiniciar();
+})();

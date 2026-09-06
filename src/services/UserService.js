@@ -37,6 +37,7 @@ class UserService {
       nick = candidate;
     }
     safeData.nick = String(nick).trim().toLowerCase();
+    if (safeData.nome) safeData.nome = String(safeData.nome).toUpperCase().trim();
     const existing = await this.repo.findByNick(safeData.nick);
     if (existing) throw { statusCode: 409, message: 'Nick já cadastrado' };
     const senhaEmClaro = safeData.senha || crypto.randomBytes(10).toString('hex');
@@ -46,7 +47,7 @@ class UserService {
       senha: await bcrypt.hash(senhaEmClaro, authConfig.bcryptSaltRounds)
     };
     if (cols.length > 0) {
-      novoUsuario.deve_trocar_senha = safeData.senha ? 0 : 1;
+      novoUsuario.deve_trocar_senha = 1;
     }
     const result = await this.repo.create(novoUsuario);
     await registerAudit({ userId, action: 'create', entity: 'usuarios', entityId: result.id, newValues: { ...novoUsuario, senha: '[oculta]' }, ip });
@@ -58,6 +59,7 @@ class UserService {
     const user = await this.repo.findById(id);
     if (!user) throw { statusCode: 404, message: 'Usuário não encontrado' };
     const safeData = sanitizePayload(data, ['nome', 'setor', 'nick', 'perfil']);
+    if (safeData.nome) safeData.nome = String(safeData.nome).toUpperCase().trim();
     if (safeData.nick) {
       safeData.nick = String(safeData.nick).trim().toLowerCase();
       if (safeData.nick !== user.nick) {

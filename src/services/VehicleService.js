@@ -18,6 +18,7 @@ class VehicleService {
   }
 
   async create(data, userId, ip) {
+    if (data.motor) data.motor = String(data.motor).toUpperCase().trim();
     const existing = await this.repo.findByPlaca(data.placa);
     if (existing) throw { statusCode: 409, message: 'Placa já cadastrada' };
     data.ativo = 1;
@@ -28,6 +29,7 @@ class VehicleService {
   }
 
   async update(id, data, userId, ip) {
+    if (data.motor) data.motor = String(data.motor).toUpperCase().trim();
     const vehicle = await this.repo.findById(id);
     if (!vehicle) throw { statusCode: 404, message: 'Veículo não encontrado' };
     if (data.placa && data.placa !== vehicle.placa) {

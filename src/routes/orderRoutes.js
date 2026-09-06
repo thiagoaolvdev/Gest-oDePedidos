@@ -15,6 +15,7 @@ router.put('/:id', OrderController.update);
 router.patch('/:id/status', authorize('logistica'), OrderController.updateStatus);
 router.patch('/:id/entrega', authorize('logistica'), OrderController.updateEntrega);
 router.post('/:id/approve', OrderController.approve);
+router.post('/:id/autorizar', authorize('diretor'), OrderController.authorize);
 router.post('/:id/reject', OrderController.reject);
 router.post('/:id/request-new-quote', OrderController.requestNewQuote);
 router.delete('/:id', OrderController.destroy);

@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { jwtSecret } = require('../config/auth');
 
-const authenticate = (req, res, next) => {
+const authenticate = async (req, res, next) => {
   let token = null;
   const authHeader = req.headers.authorization;
   if (authHeader) {
@@ -18,6 +18,23 @@ const authenticate = (req, res, next) => {
   }
   try {
     const decoded = jwt.verify(token, jwtSecret);
+    if (decoded.sid) {
+      const db = require('../config/database');
+      const [rows] = await db.execute(
+        'SELECT ultima_atividade FROM refresh_tokens WHERE id = ?',
+        [decoded.sid]
+      );
+      if (!rows[0]) {
+        return res.status(401).json({ error: 'Sessão encerrada', code: 'SESSION_ENDED' });
+      }
+      const minutosInativo =
+        (Date.now() - new Date(rows[0].ultima_atividade).getTime()) / 60000;
+      if (minutosInativo > require('../config/auth').sessionInactivityMinutes) {
+        await db.execute('DELETE FROM refresh_tokens WHERE id = ?', [decoded.sid]);
+        return res.status(401).json({ error: 'Sessão expirada por inatividade', code: 'SESSION_INACTIVE' });
+      }
+      db.execute('UPDATE refresh_tokens SET ultima_atividade = NOW() WHERE id = ?', [decoded.sid]).catch(() => {});
+    }
     req.userId = decoded.id;
     req.userPerfil = decoded.perfil;
     req.userNome = decoded.nome;

@@ -17,5 +17,7 @@ module.exports = {
   jwtRefreshSecret: resolveSecret('JWT_REFRESH_SECRET'),
   jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
   bcryptSaltRounds: 10,
-  directorApprovalLimit: Number(process.env.APROVACAO_DIRETOR_LIMITE) || 599
+  directorApprovalLimit: Number(process.env.APROVACAO_DIRETOR_LIMITE) || 599,
+  sessionInactivityMinutes: Number(process.env.SESSION_INACTIVITY_MINUTES) || 60,
+  maxSessoesSimultaneas: Number(process.env.MAX_SESSOES_SIMULTANEAS) || 10
 };

@@ -327,6 +327,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
         'pendente',
         'em_compra',
         'aguardando_aprovacao',
+        'aguardando_autorizacao',
         'novo_orcamento',
         'aprovado',
         'rejeitado',
@@ -1102,6 +1103,9 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     usuario_id INT NOT NULL,
 
     token VARCHAR(500) NOT NULL,
+
+    ultima_atividade DATETIME NOT NULL
+        DEFAULT CURRENT_TIMESTAMP,
 
     expires_at DATETIME NOT NULL,
 

@@ -15,6 +15,7 @@ class ModeloService {
 
   async create(data, userId, ip) {
     const { registerAudit } = require('../utils/audit');
+    if (data.nome) data.nome = String(data.nome).toUpperCase().trim();
     const result = await this.repo.create(data);
     await registerAudit({ userId, action: 'create', entity: 'modelos', entityId: result.id, newValues: data, ip });
     return result;
@@ -22,6 +23,7 @@ class ModeloService {
 
   async update(id, data, userId, ip) {
     const { registerAudit } = require('../utils/audit');
+    if (data.nome) data.nome = String(data.nome).toUpperCase().trim();
     await this.findById(id);
     await this.repo.update(id, data);
     await registerAudit({ userId, action: 'update', entity: 'modelos', entityId: id, newValues: data, ip });

@@ -112,6 +112,8 @@ class OrderService {
 
     for (const item of (safeData.itens || [])) {
       const db = require('../config/database');
+      item.descricao = String(item.descricao || '').toUpperCase().trim();
+      item.fornecedor_origem = item.fornecedor_origem ? String(item.fornecedor_origem).toUpperCase().trim() : item.fornecedor_origem;
       const valorUnitario = item.valor_unitario || 0;
       const valorTotalItem = (item.quantidade || 1) * valorUnitario;
       valorTotal += valorTotalItem;
@@ -198,6 +200,8 @@ class OrderService {
       let valorTotal = 0;
       temCotacao = podeDefinirPreco && safeData.itens.some((item) => item.fornecedor_id || item.valor_unitario !== undefined);
       for (const item of safeData.itens) {
+        item.descricao = String(item.descricao || '').toUpperCase().trim();
+        item.fornecedor_origem = item.fornecedor_origem ? String(item.fornecedor_origem).toUpperCase().trim() : item.fornecedor_origem;
         const valorUnitario = podeDefinirPreco ? (item.valor_unitario || 0) : 0;
         const valorTotalItem = (item.quantidade || 1) * valorUnitario;
         valorTotal += valorTotalItem;
@@ -238,7 +242,7 @@ class OrderService {
     if (!order) throw { statusCode: 404, message: 'Pedido não encontrado' };
 
     const novoStatus = data.status;
-    const statusFlow = ['pendente', 'em_compra', 'aguardando_aprovacao', 'novo_orcamento', 'aprovado', 'comprado', 'concluido'];
+    const statusFlow = ['pendente', 'em_compra', 'aguardando_aprovacao', 'aguardando_autorizacao', 'novo_orcamento', 'aprovado', 'comprado', 'concluido'];
     const currentIdx = statusFlow.indexOf(order.status);
     const newIdx = statusFlow.indexOf(novoStatus);
 
@@ -348,16 +352,55 @@ class OrderService {
       throw { statusCode: 400, message: 'Pedido não está aguardando aprovação' };
     }
 
-    if (Number(order.valor_total) > authConfig.directorApprovalLimit && perfil !== 'diretor') {
-      const limite = authConfig.directorApprovalLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-      throw { statusCode: 403, message: `Pedido acima de ${limite} requer autorização do diretor` };
+    const isOwner = Number(order.usuario_id) === Number(userId);
+    if (!isOwner) {
+      throw { statusCode: 403, message: 'Apenas quem solicitou o pedido pode confirmar a compra' };
     }
 
-    const isOwner = Number(order.usuario_id) === Number(userId);
-    const isLogistica = perfil === 'logistica';
-    const isDiretor = perfil === 'diretor';
-    if (!isOwner && !isLogistica && !isDiretor) {
-      throw { statusCode: 403, message: 'Apenas quem solicitou o pedido pode aprovar esta cotação' };
+    const precisaDiretor = Number(order.valor_total) > authConfig.directorApprovalLimit;
+    const novoStatus = precisaDiretor ? 'aguardando_autorizacao' : 'aprovado';
+    const descricao = precisaDiretor
+      ? 'Compra confirmada pelo solicitante. Aguardando autorização do diretor.'
+      : 'Pedido aprovado';
+
+    await this.repo.updateStatus(id, novoStatus, {
+      aprovado_por: precisaDiretor ? null : userId,
+      data_aprovacao: precisaDiretor ? null : new Date().toISOString().slice(0, 19).replace('T', ' ')
+    });
+
+    await this._registrarHistorico(id, userId, novoStatus, descricao);
+    await registerAudit({ userId, action: 'approve', entity: 'pedidos', entityId: id, oldValues: { status: order.status }, newValues: { status: novoStatus }, ip });
+    logger.info(`Pedido ${order.numero} compra confirmada por usuário ${userId} (status: ${novoStatus})`);
+
+    if (precisaDiretor) {
+      const limite = authConfig.directorApprovalLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      await this._notifyDirectorsForAuthorization(id, order.numero, order.valor_total, limite);
+    }
+
+    const user = await this.userRepo.findById(order.usuario_id);
+    if (user) {
+      await this.notifRepo.create({
+        usuario_id: user.id,
+        titulo: `Pedido ${order.numero} ${precisaDiretor ? 'aguardando autorização' : 'aprovado'}`,
+        mensagem: precisaDiretor
+          ? `Seu pedido ${order.numero} foi confirmado e agora aguarda a autorização do diretor.`
+          : `Seu pedido ${order.numero} foi aprovado.`,
+        tipo: 'aprovacao',
+        pedido_id: id
+      });
+    }
+
+    return this.repo.findFullById(id);
+  }
+
+  async authorize(id, userId, perfil, ip) {
+    const order = await this.repo.findById(id);
+    if (!order) throw { statusCode: 404, message: 'Pedido não encontrado' };
+    if (order.status !== 'aguardando_autorizacao') {
+      throw { statusCode: 400, message: 'Pedido não está aguardando autorização do diretor' };
+    }
+    if (perfil !== 'diretor') {
+      throw { statusCode: 403, message: 'Apenas o diretor pode autorizar este pedido' };
     }
 
     await this.repo.updateStatus(id, 'aprovado', {
@@ -365,16 +408,16 @@ class OrderService {
       data_aprovacao: new Date().toISOString().slice(0, 19).replace('T', ' ')
     });
 
-    await this._registrarHistorico(id, userId, 'aprovado', 'Pedido aprovado');
-    await registerAudit({ userId, action: 'approve', entity: 'pedidos', entityId: id, oldValues: { status: order.status }, newValues: { status: 'aprovado' }, ip });
-    logger.info(`Pedido ${order.numero} aprovado por usuário ${userId}`);
+    await this._registrarHistorico(id, userId, 'aprovado', 'Pedido autorizado pelo diretor');
+    await registerAudit({ userId, action: 'authorize', entity: 'pedidos', entityId: id, oldValues: { status: order.status }, newValues: { status: 'aprovado' }, ip });
+    logger.info(`Pedido ${order.numero} autorizado pelo diretor ${userId}`);
 
     const user = await this.userRepo.findById(order.usuario_id);
     if (user) {
       await this.notifRepo.create({
         usuario_id: user.id,
-        titulo: `Pedido ${order.numero} aprovado`,
-        mensagem: `Seu pedido ${order.numero} foi aprovado.`,
+        titulo: `Pedido ${order.numero} autorizado`,
+        mensagem: `Seu pedido ${order.numero} foi autorizado pelo diretor.`,
         tipo: 'aprovacao',
         pedido_id: id
       });
@@ -390,15 +433,15 @@ class OrderService {
       throw { statusCode: 400, message: 'Pedido já finalizado ou cancelado' };
     }
 
-    if (Number(order.valor_total) > authConfig.directorApprovalLimit && perfil !== 'diretor') {
+    const isOwner = Number(order.usuario_id) === Number(userId);
+    const isDiretorAutorizacao = perfil === 'diretor' && order.status === 'aguardando_autorizacao';
+    const isLogisticaGestao = perfil === 'logistica' && ['pendente', 'em_compra', 'novo_orcamento'].includes(order.status);
+    if (Number(order.valor_total) > authConfig.directorApprovalLimit && perfil !== 'diretor' && !isOwner) {
       const limite = authConfig.directorApprovalLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
       throw { statusCode: 403, message: `Pedido acima de ${limite} requer autorização do diretor` };
     }
 
-    const isOwner = Number(order.usuario_id) === Number(userId);
-    const isLogistica = perfil === 'logistica';
-    const isDiretor = perfil === 'diretor';
-    if (!isOwner && !isLogistica && !isDiretor) {
+    if (!isOwner && !isDiretorAutorizacao && !isLogisticaGestao) {
       throw { statusCode: 403, message: 'Apenas quem solicitou o pedido pode rejeitar esta cotação' };
     }
 
@@ -429,13 +472,12 @@ class OrderService {
   async requestNewQuote(id, userId, perfil, data, ip) {
     const order = await this.repo.findById(id);
     if (!order) throw { statusCode: 404, message: 'Pedido não encontrado' };
-    if (order.status !== 'aguardando_aprovacao') {
+    if (!['aguardando_aprovacao', 'aguardando_autorizacao'].includes(order.status)) {
       throw { statusCode: 400, message: 'Pedido não está aguardando aprovação' };
     }
 
     const isOwner = Number(order.usuario_id) === Number(userId);
-    const isLogistica = perfil === 'logistica';
-    if (!isOwner && !isLogistica) {
+    if (!isOwner) {
       throw { statusCode: 403, message: 'Apenas quem solicitou o pedido pode solicitar um novo orçamento' };
     }
 
@@ -506,6 +548,19 @@ class OrderService {
         usuario_id: dir.id,
         titulo: `Pedido ${numero} aguarda aprovação`,
         mensagem: `Pedido ${numero} no valor de R$ ${valorTotal.toFixed(2)} aguarda sua aprovação.`,
+        tipo: 'aprovacao',
+        pedido_id: orderId
+      });
+    }
+  }
+
+  async _notifyDirectorsForAuthorization(orderId, numero, valorTotal, limite) {
+    const directors = await this.userRepo.findByPerfil('diretor');
+    for (const dir of directors) {
+      await this.notifRepo.create({
+        usuario_id: dir.id,
+        titulo: `Autorização necessária - Pedido ${numero}`,
+        mensagem: `O pedido ${numero} no valor de R$ ${valorTotal.toFixed(2)} (acima de ${limite}) foi confirmado pelo solicitante e aguarda sua autorização.`,
         tipo: 'aprovacao',
         pedido_id: orderId
       });

@@ -9,7 +9,7 @@ const service = new ReportService();
 const exportRelatorioVeiculo = async (req, res, next) => {
   try {
     const { placa } = req.params;
-    const { formato, dataInicio, dataFim } = req.query;
+    const { formato, dataInicio, dataFim, status } = req.query;
 
     if (!formato || !['pdf', 'excel'].includes(formato)) {
       return res.status(400).json({ message: 'Formato invalido. Use "pdf" ou "excel".' });
@@ -23,6 +23,9 @@ const exportRelatorioVeiculo = async (req, res, next) => {
     if (dataInicio && dataFim) {
       filtros.dataInicio = dataInicio;
       filtros.dataFim = dataFim;
+    }
+    if (['pendente', 'comprado', 'cancelado'].includes(status)) {
+      filtros.status = status;
     }
 
     const dados = await service.getRelatorioDetalhadoVeiculo(placa.trim().toUpperCase(), filtros);

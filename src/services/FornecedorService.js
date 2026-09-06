@@ -13,6 +13,8 @@ class FornecedorService {
 
   async create(data, userId, ip) {
     const { registerAudit } = require('../utils/audit');
+    if (data.razao_social) data.razao_social = String(data.razao_social).toUpperCase().trim();
+    if (data.nome_fantasia) data.nome_fantasia = String(data.nome_fantasia).toUpperCase().trim();
     data.ativo = 1;
     const result = await this.repo.create(data);
     await registerAudit({ userId, action: 'create', entity: 'fornecedores', entityId: result.id, newValues: data, ip });
@@ -21,6 +23,8 @@ class FornecedorService {
 
   async update(id, data, userId, ip) {
     const { registerAudit } = require('../utils/audit');
+    if (data.razao_social) data.razao_social = String(data.razao_social).toUpperCase().trim();
+    if (data.nome_fantasia) data.nome_fantasia = String(data.nome_fantasia).toUpperCase().trim();
     await this.findById(id);
     const old = await this.repo.findById(id);
     await this.repo.update(id, data);

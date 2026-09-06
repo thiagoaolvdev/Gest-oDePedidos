@@ -43,8 +43,29 @@ const me = async (req, res, next) => {
     const UserService = require('../services/UserService');
     const userService = new UserService();
     const user = await userService.findById(req.userId);
-    res.json(user);
+    res.json({ ...user, deveTrocarSenha: Boolean(user.deve_trocar_senha) });
   } catch (err) { next(err); }
 };
 
-module.exports = { login, refresh, logout, me };
+const changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Senha atual e nova senha são obrigatórios' });
+    }
+    if (String(newPassword).length < 10) {
+      return res.status(400).json({ error: 'A nova senha deve ter no mínimo 10 caracteres' });
+    }
+    if (!/[A-Za-zÀ-ÿ]/.test(String(newPassword)) || !/\d/.test(String(newPassword))) {
+      return res.status(400).json({ error: 'A nova senha deve conter ao menos uma letra e um número' });
+    }
+    if (!/[^A-Za-zÀ-ÿ0-9]/.test(String(newPassword))) {
+      return res.status(400).json({ error: 'A nova senha deve conter ao menos um caractere especial (ex: @, #, !, $)' });
+    }
+    const ip = req.ip || req.connection.remoteAddress;
+    await service.changePassword(req.userId, String(currentPassword), String(newPassword), ip);
+    res.json({ message: 'Senha alterada com sucesso' });
+  } catch (err) { next(err); }
+};
+
+module.exports = { login, refresh, logout, me, changePassword };

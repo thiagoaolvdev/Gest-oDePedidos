@@ -176,74 +176,36 @@ const KPIS = {
     }
   },
 
-  desvio_preco: {
-    label: 'Itens com Preço Fora do Padrão',
-    unidade: 'percentual',
+  pedidos_em_atencao: {
+    label: 'Pedidos em Atenção Agora',
+    unidade: 'quantidade',
     direcao: 'queda_boa',
-    descricao: 'Percentual de itens vinculados a peça cujo preço difere em mais de 20% da média histórica da peça.',
-    LIMITE_DESVIO: 0.20,
-    async calcular(periodo) {
-      const limite = this.LIMITE_DESVIO;
-      const [totais] = await db.query(`
-        SELECT COUNT(*) AS total_itens
-        FROM pedido_itens pi
-        JOIN pedidos p ON p.id = pi.pedido_id
-        WHERE 1=1${wherePeriodo('p', periodo)}
-          AND pi.peca_id IS NOT NULL
-          AND pi.valor_unitario IS NOT NULL
-      `, paramsPeriodo(periodo));
-      const totalItens = Number(totais[0].total_itens) || 0;
-      if (!totalItens) return null;
-      const [desvios] = await db.query(`
-        SELECT COUNT(*) AS itens_com_desvio
-        FROM pedido_itens pi
-        JOIN pedidos p ON p.id = pi.pedido_id
-        JOIN (
-          SELECT peca_id, AVG(valor_unitario) AS media_historica
-          FROM pedido_itens
-          WHERE peca_id IS NOT NULL
-          GROUP BY peca_id
-        ) hist ON hist.peca_id = pi.peca_id
-        WHERE 1=1${wherePeriodo('p', periodo)}
-          AND hist.media_historica > 0
-          AND ABS(pi.valor_unitario - hist.media_historica) / hist.media_historica > ?
-      `, [...paramsPeriodo(periodo), limite]);
-      return arredondar((Number(desvios[0].itens_com_desvio) / totalItens) * 100, 1);
-    },
-    async detalhar(periodo) {
-      const limite = this.LIMITE_DESVIO;
+    sem_periodo: true,
+    descricao: 'Pedidos com triagem preenchida que ainda estão pendentes de tratamento (aba Atenção).',
+    async calcular() {
       const [rows] = await db.query(`
-        SELECT p.numero, p.data_pedido, pe.nome AS peca,
-          pi.valor_unitario, hist.media_historica,
-          ROUND((pi.valor_unitario - hist.media_historica) / hist.media_historica * 100, 1) AS desvio_percentual
-        FROM pedido_itens pi
-        JOIN pedidos p ON p.id = pi.pedido_id
-        JOIN pecas pe ON pe.id = pi.peca_id
-        JOIN (
-          SELECT peca_id, AVG(valor_unitario) AS media_historica
-          FROM pedido_itens
-          WHERE peca_id IS NOT NULL
-          GROUP BY peca_id
-        ) hist ON hist.peca_id = pi.peca_id
-        WHERE 1=1${wherePeriodo('p', periodo)}
-          AND hist.media_historica > 0
-          AND ABS(pi.valor_unitario - hist.media_historica) / hist.media_historica > ?
-        ORDER BY ABS((pi.valor_unitario - hist.media_historica) / hist.media_historica) DESC
-      `, [...paramsPeriodo(periodo), limite]);
+        SELECT COUNT(*) AS valor
+        FROM pedidos
+        WHERE triagem IS NOT NULL AND status = 'pendente'
+      `);
+      return Number(rows[0].valor);
+    },
+    async detalhar() {
+      const [rows] = await db.query(`
+        SELECT numero, triagem, data_pedido,
+          TIMESTAMPDIFF(HOUR, data_pedido, NOW()) AS horas_em_atencao
+        FROM pedidos
+        WHERE triagem IS NOT NULL AND status = 'pendente'
+        ORDER BY horas_em_atencao DESC
+      `);
       return {
         colunas: [
           { key: 'numero', label: 'Pedido', tipo: 'texto' },
-          { key: 'data_pedido', label: 'Data', tipo: 'data' },
-          { key: 'peca', label: 'Peça', tipo: 'texto' },
-          { key: 'valor_unitario', label: 'Preço Praticado', tipo: 'moeda' },
-          { key: 'media_historica', label: 'Média Histórica', tipo: 'moeda' },
-          { key: 'desvio_percentual', label: 'Desvio', tipo: 'percentual' }
+          { key: 'triagem', label: 'Triagem', tipo: 'texto' },
+          { key: 'data_pedido', label: 'Criado em', tipo: 'datahora' },
+          { key: 'horas_em_atencao', label: 'Horas em Atenção', tipo: 'horas' }
         ],
-        registros: rows.map(r => ({
-          ...r,
-          valor_unitario: arredondar(r.valor_unitario, 2),
-          media_historica: arredondar(r.media_historica, 2)
-        }))
+        registros: rows
       };
     }
   },
@@ -349,45 +311,35 @@ const KPIS = {
     }
   },
 
-  lead_time_fornecedor: {
-    label: 'Lead Time Médio por Fornecedor',
-    unidade: 'dias',
+  tempo_resposta_triagem: {
+    label: 'Tempo Médio na Triagem',
+    unidade: 'horas',
     direcao: 'queda_boa',
-    requerDadosMinimos: true,
-    VOLUME_MINIMO: 5,
-    descricao: 'Média de dias entre o pedido e a entrega real, agrupada pelo fornecedor do primeiro item.',
+    descricao: 'Média de horas entre a criação e a saída da aba Atenção, para pedidos com triagem preenchida.',
     async calcular(periodo) {
-      const [volume] = await db.query(
-        'SELECT COUNT(*) AS total FROM pedidos WHERE data_entrega_real IS NOT NULL'
-      );
-      if (Number(volume[0].total) < this.VOLUME_MINIMO) return null;
       const [rows] = await db.query(`
-        SELECT AVG(DATEDIFF(p.data_entrega_real, p.data_pedido)) AS valor
-        FROM pedidos p
-        WHERE p.data_entrega_real IS NOT NULL${wherePeriodo('p', periodo)}
+        SELECT AVG(TIMESTAMPDIFF(HOUR, pedidos.data_pedido, pedidos.ultima_atualizacao)) AS valor
+        FROM pedidos
+        WHERE pedidos.triagem IS NOT NULL AND pedidos.status <> 'pendente'${wherePeriodo('pedidos', periodo)}
       `, paramsPeriodo(periodo));
       return arredondar(rows[0].valor, 1);
     },
     async detalhar(periodo) {
       const [rows] = await db.query(`
-        SELECT f.razao_social AS fornecedor,
-          ROUND(AVG(DATEDIFF(p.data_entrega_real, p.data_pedido)), 1) AS lead_time_medio_dias,
-          COUNT(*) AS total_pedidos
-        FROM pedidos p
-        JOIN fornecedores f ON f.id = (
-          SELECT pi.fornecedor_id FROM pedido_itens pi
-          WHERE pi.pedido_id = p.id AND pi.fornecedor_id IS NOT NULL
-          ORDER BY pi.id ASC LIMIT 1
-        )
-        WHERE p.data_entrega_real IS NOT NULL${wherePeriodo('p', periodo)}
-        GROUP BY f.id, f.razao_social
-        ORDER BY lead_time_medio_dias DESC
+        SELECT numero, triagem, status, data_pedido, ultima_atualizacao,
+          TIMESTAMPDIFF(HOUR, data_pedido, ultima_atualizacao) AS horas_ate_sair
+        FROM pedidos
+        WHERE triagem IS NOT NULL AND status <> 'pendente'${wherePeriodo('pedidos', periodo)}
+        ORDER BY horas_ate_sair DESC
       `, paramsPeriodo(periodo));
       return {
         colunas: [
-          { key: 'fornecedor', label: 'Fornecedor', tipo: 'texto' },
-          { key: 'lead_time_medio_dias', label: 'Lead Time Médio (dias)', tipo: 'dias' },
-          { key: 'total_pedidos', label: 'Pedidos Entregues', tipo: 'numero' }
+          { key: 'numero', label: 'Pedido', tipo: 'texto' },
+          { key: 'triagem', label: 'Triagem', tipo: 'texto' },
+          { key: 'status', label: 'Status Atual', tipo: 'status' },
+          { key: 'data_pedido', label: 'Criado em', tipo: 'datahora' },
+          { key: 'ultima_atualizacao', label: 'Saiu da Atenção em', tipo: 'datahora' },
+          { key: 'horas_ate_sair', label: 'Horas na Triagem', tipo: 'horas' }
         ],
         registros: rows
       };
@@ -404,17 +356,22 @@ const KPIS = {
         SELECT COALESCE(SUM(pi.valor_total), 0) AS total_geral
         FROM pedido_itens pi
         JOIN pedidos p ON p.id = pi.pedido_id
-        WHERE pi.fornecedor_id IS NOT NULL AND p.status IN (${STATUS_GASTO})${wherePeriodo('p', periodo)}
+        LEFT JOIN fornecedores f ON f.id = pi.fornecedor_id
+        WHERE COALESCE(NULLIF(TRIM(pi.fornecedor_origem), ''), f.razao_social) IS NOT NULL
+          AND p.status IN (${STATUS_GASTO})${wherePeriodo('p', periodo)}
       `, paramsPeriodo(periodo));
       const totalGeral = Number(geral[0].total_geral);
       if (!totalGeral) return null;
       const [maior] = await db.query(`
         SELECT MAX(total_fornecedor) AS maior FROM (
-          SELECT pi.fornecedor_id, SUM(pi.valor_total) AS total_fornecedor
+          SELECT COALESCE(NULLIF(TRIM(pi.fornecedor_origem), ''), f.razao_social) AS fornecedor,
+            SUM(pi.valor_total) AS total_fornecedor
           FROM pedido_itens pi
           JOIN pedidos p ON p.id = pi.pedido_id
-          WHERE pi.fornecedor_id IS NOT NULL AND p.status IN (${STATUS_GASTO})${wherePeriodo('p', periodo)}
-          GROUP BY pi.fornecedor_id
+          LEFT JOIN fornecedores f ON f.id = pi.fornecedor_id
+          WHERE COALESCE(NULLIF(TRIM(pi.fornecedor_origem), ''), f.razao_social) IS NOT NULL
+            AND p.status IN (${STATUS_GASTO})${wherePeriodo('p', periodo)}
+          GROUP BY fornecedor
         ) t
       `, paramsPeriodo(periodo));
       return arredondar((Number(maior[0].maior) / totalGeral) * 100, 1);
@@ -424,7 +381,9 @@ const KPIS = {
         SELECT COALESCE(SUM(pi.valor_total), 0) AS total_geral
         FROM pedido_itens pi
         JOIN pedidos p ON p.id = pi.pedido_id
-        WHERE pi.fornecedor_id IS NOT NULL AND p.status IN (${STATUS_GASTO})${wherePeriodo('p', periodo)}
+        LEFT JOIN fornecedores f ON f.id = pi.fornecedor_id
+        WHERE COALESCE(NULLIF(TRIM(pi.fornecedor_origem), ''), f.razao_social) IS NOT NULL
+          AND p.status IN (${STATUS_GASTO})${wherePeriodo('p', periodo)}
       `, paramsPeriodo(periodo));
       const totalGeral = Number(geral[0].total_geral);
       if (!totalGeral) {
@@ -438,14 +397,15 @@ const KPIS = {
         };
       }
       const [rows] = await db.query(`
-        SELECT f.razao_social AS fornecedor,
+        SELECT COALESCE(NULLIF(TRIM(pi.fornecedor_origem), ''), f.razao_social) AS fornecedor,
           SUM(pi.valor_total) AS total_gasto,
           ROUND(SUM(pi.valor_total) / ?, 4) * 100 AS percentual_do_total
         FROM pedido_itens pi
         JOIN pedidos p ON p.id = pi.pedido_id
-        JOIN fornecedores f ON f.id = pi.fornecedor_id
-        WHERE pi.fornecedor_id IS NOT NULL AND p.status IN (${STATUS_GASTO})${wherePeriodo('p', periodo)}
-        GROUP BY f.id, f.razao_social
+        LEFT JOIN fornecedores f ON f.id = pi.fornecedor_id
+        WHERE COALESCE(NULLIF(TRIM(pi.fornecedor_origem), ''), f.razao_social) IS NOT NULL
+          AND p.status IN (${STATUS_GASTO})${wherePeriodo('p', periodo)}
+        GROUP BY fornecedor
         ORDER BY total_gasto DESC
       `, [totalGeral, ...paramsPeriodo(periodo)]);
       return {
@@ -585,17 +545,6 @@ const GRAFICOS_KPI = {
     };
   },
   ticket_medio: (_registros, _periodo, chave) => paraFormatoLinha(chave),
-  desvio_preco: (registros) => {
-    const top = registros.slice(0, 10);
-    return {
-      tipo: 'bar_agrupado',
-      labels: top.map(r => `${r.peca} · ${r.numero}`),
-      series: [
-        { label: 'Preço Praticado', valores: top.map(r => arredondar(r.valor_unitario, 2)) },
-        { label: 'Média Histórica', valores: top.map(r => arredondar(r.media_historica, 2)) }
-      ]
-    };
-  },
   tempo_aprovacao: (_registros, _periodo, chave) => paraFormatoLinha(chave),
   pedidos_parados: (registros) => {
     const DIAS = 14;
@@ -625,7 +574,6 @@ const GRAFICOS_KPI = {
     };
   },
   taxa_rejeicao: (_registros, _periodo, chave) => paraFormatoLinha(chave),
-  lead_time_fornecedor: (registros) => paraFormatoBarra(registros, 'fornecedor', 'lead_time_medio_dias'),
   concentracao_fornecedor: (registros) => {
     const top = registros.slice(0, 10);
     return {

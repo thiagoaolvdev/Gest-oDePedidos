@@ -18,6 +18,9 @@ class PartService {
   }
 
   async create(data, userId, ip) {
+    data.nome = String(data.nome).toUpperCase().trim();
+    if (data.codigo_interno) data.codigo_interno = String(data.codigo_interno).toUpperCase().trim();
+    if (data.codigo_fabricante) data.codigo_fabricante = String(data.codigo_fabricante).toUpperCase().trim();
     const existing = await this.repo.findByCodigoInterno(data.codigo_interno);
     if (existing) throw { statusCode: 409, message: 'Código interno já cadastrado' };
     data.ativo = 1;
@@ -28,6 +31,9 @@ class PartService {
   }
 
   async update(id, data, userId, ip) {
+    if (data.nome) data.nome = String(data.nome).toUpperCase().trim();
+    if (data.codigo_interno) data.codigo_interno = String(data.codigo_interno).toUpperCase().trim();
+    if (data.codigo_fabricante) data.codigo_fabricante = String(data.codigo_fabricante).toUpperCase().trim();
     const part = await this.repo.findById(id);
     if (!part) throw { statusCode: 404, message: 'Peça não encontrada' };
     if (data.codigo_interno && data.codigo_interno !== part.codigo_interno) {

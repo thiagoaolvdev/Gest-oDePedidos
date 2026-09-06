@@ -12,6 +12,7 @@ class AuthService {
   }
 
   async login(nick, password, ip) {
+    const db = require('../config/database');
     const user = await this.userRepo.findByNick(String(nick).trim().toLowerCase());
     if (!user) {
       throw { statusCode: 401, message: 'Credenciais inválidas' };
@@ -23,13 +24,54 @@ class AuthService {
     if (!valid) {
       throw { statusCode: 401, message: 'Credenciais inválidas' };
     }
-    const payload = { id: user.id, nome: user.nome, nick: user.nick, perfil: user.perfil };
+
+    await db.execute(
+      'DELETE FROM refresh_tokens WHERE ultima_atividade <= DATE_SUB(NOW(), INTERVAL ? MINUTE) OR expires_at <= NOW()',
+      [authConfig.sessionInactivityMinutes]
+    );
+    const [[{ total }]] = await db.query('SELECT COUNT(*) AS total FROM refresh_tokens');
+    if (total >= authConfig.maxSessoesSimultaneas) {
+      throw { statusCode: 403, message: `Limite de ${authConfig.maxSessoesSimultaneas} acessos simultâneos atingido. Tente novamente em instantes.` };
+    }
+
+    const sessao = await this._saveRefreshToken(user.id);
+    const payload = { id: user.id, nome: user.nome, nick: user.nick, perfil: user.perfil, sid: sessao.id };
     const token = jwt.sign(payload, authConfig.jwtSecret, { expiresIn: authConfig.jwtExpiresIn });
-    const refreshToken = crypto.randomBytes(40).toString('hex');
-    await this._saveRefreshToken(user.id, refreshToken);
     await registerAudit({ userId: user.id, action: 'login', entity: 'usuarios', entityId: user.id, ip });
     logger.info(`Login: ${user.nick}`, { userId: user.id, perfil: user.perfil });
-    return { token, refreshToken, user: { id: user.id, nome: user.nome, nick: user.nick, perfil: user.perfil } };
+    return {
+      token,
+      refreshToken: sessao.token,
+      user: {
+        id: user.id,
+        nome: user.nome,
+        nick: user.nick,
+        perfil: user.perfil,
+        deveTrocarSenha: Boolean(user.deve_trocar_senha)
+      }
+    };
+  }
+
+  async changePassword(userId, currentPassword, newPassword, ip) {
+    const user = await this.userRepo.findById(userId);
+    if (!user) {
+      throw { statusCode: 404, message: 'Usuário não encontrado' };
+    }
+    if (!user.ativo) {
+      throw { statusCode: 403, message: 'Usuário inativo' };
+    }
+    const valid = await bcrypt.compare(String(currentPassword), user.senha);
+    if (!valid) {
+      throw { statusCode: 401, message: 'Senha atual incorreta' };
+    }
+    const db = require('../config/database');
+    await db.execute('UPDATE usuarios SET senha = ?, deve_trocar_senha = 0 WHERE id = ?', [
+      await bcrypt.hash(String(newPassword), authConfig.bcryptSaltRounds),
+      user.id
+    ]);
+    await registerAudit({ userId: user.id, action: 'change_password', entity: 'usuarios', entityId: user.id, ip });
+    logger.info(`Senha alterada: ${user.nick}`, { userId: user.id });
+    return true;
   }
 
   async refresh(refreshToken, ip) {
@@ -43,12 +85,11 @@ class AuthService {
       throw { statusCode: 403, message: 'Usuário não encontrado ou inativo' };
     }
     await db.execute('DELETE FROM refresh_tokens WHERE token = ?', [refreshToken]);
-    const payload = { id: user.id, nome: user.nome, nick: user.nick, perfil: user.perfil };
+    const sessao = await this._saveRefreshToken(user.id);
+    const payload = { id: user.id, nome: user.nome, nick: user.nick, perfil: user.perfil, sid: sessao.id };
     const token = jwt.sign(payload, authConfig.jwtSecret, { expiresIn: authConfig.jwtExpiresIn });
-    const newRefreshToken = crypto.randomBytes(40).toString('hex');
-    await this._saveRefreshToken(user.id, newRefreshToken);
     await registerAudit({ userId: user.id, action: 'refresh_token', entity: 'usuarios', entityId: user.id, ip });
-    return { token, refreshToken: newRefreshToken, user: { id: user.id, nome: user.nome, nick: user.nick, perfil: user.perfil } };
+    return { token, refreshToken: sessao.token, user: { id: user.id, nome: user.nome, nick: user.nick, perfil: user.perfil } };
   }
 
   async logout(userId, refreshToken, ip) {
@@ -60,14 +101,16 @@ class AuthService {
     logger.info(`Logout: ${userId}`);
   }
 
-  async _saveRefreshToken(userId, token) {
+  async _saveRefreshToken(userId) {
     const db = require('../config/database');
+    const token = crypto.randomBytes(40).toString('hex');
     const expires = new Date();
     expires.setDate(expires.getDate() + 7);
-    await db.execute(
-      'INSERT INTO refresh_tokens (usuario_id, token, expires_at) VALUES (?, ?, ?)',
+    const [result] = await db.execute(
+      'INSERT INTO refresh_tokens (usuario_id, token, expires_at, ultima_atividade) VALUES (?, ?, ?, NOW())',
       [userId, token, expires.toISOString().slice(0, 19).replace('T', ' ')]
     );
+    return { id: result.insertId, token };
   }
 }
 

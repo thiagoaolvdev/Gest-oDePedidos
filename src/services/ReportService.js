@@ -28,6 +28,13 @@ class ReportService {
       whereExtra = ' AND p.data_pedido BETWEEN ? AND ?';
       params.push(filtros.dataInicio, filtros.dataFim);
     }
+    if (filtros.status === 'pendente') {
+      whereExtra += ' AND p.status = \'pendente\'';
+    } else if (filtros.status === 'cancelado') {
+      whereExtra += ' AND p.status = \'rejeitado\'';
+    } else if (filtros.status === 'comprado') {
+      whereExtra += ' AND p.status NOT IN (\'pendente\', \'rejeitado\')';
+    }
 
     const [itens] = await db.execute(`
       SELECT

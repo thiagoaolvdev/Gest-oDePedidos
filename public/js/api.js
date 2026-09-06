@@ -34,6 +34,12 @@ const API = {
         this.logout();
         throw { error: 'Sessão expirada. Faça login novamente.' };
       }
+      if (errorData.code === 'SESSION_INACTIVE' || errorData.code === 'SESSION_ENDED') {
+        this.logout();
+        throw { error: errorData.code === 'SESSION_INACTIVE'
+          ? 'Sua sessão expirou por inatividade. Faça login novamente.'
+          : 'Sua sessão foi encerrada. Faça login novamente.' };
+      }
       throw errorData;
     }
     if (!res.ok) {

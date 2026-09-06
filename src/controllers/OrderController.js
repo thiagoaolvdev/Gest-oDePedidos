@@ -63,6 +63,14 @@ const approve = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+const authorize = async (req, res, next) => {
+  try {
+    const ip = req.ip || req.connection.remoteAddress;
+    const order = await service.authorize(req.params.id, req.userId, req.userPerfil, ip);
+    res.json(order);
+  } catch (err) { next(err); }
+};
+
 const reject = async (req, res, next) => {
   try {
     const ip = req.ip || req.connection.remoteAddress;
@@ -120,4 +128,4 @@ const upload = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { index, show, store, update, updateStatus, updateEntrega, approve, reject, requestNewQuote, destroy, upload };
+module.exports = { index, show, store, update, updateStatus, updateEntrega, approve, authorize, reject, requestNewQuote, destroy, upload };
